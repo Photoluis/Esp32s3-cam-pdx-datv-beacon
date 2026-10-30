@@ -33,3 +33,6 @@ media/
 
 # prova iniziale della scheda (PlatformIO / Arduino), solo locale
 hwtest/
+
+# file della release (allegati su GitHub, non nel repository)
+release/
