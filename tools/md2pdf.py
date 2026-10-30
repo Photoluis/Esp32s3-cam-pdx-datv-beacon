@@ -150,7 +150,7 @@ PROJECT = "ESP32-S3-CAM_PDX DATV Beacon"
 RTL = {"ar"}
 PRES_DIR = DOCS / "presentazione"
 # indirizzo del repository nelle presentazioni: variabile d'ambiente PDX_REPO_URL (finché non c'è, il nome proposto)
-REPO_URL = os.environ.get("PDX_REPO_URL", "GitHub: esp32s3-cam-pdx-datv-beacon")
+REPO_URL = os.environ.get("PDX_REPO_URL", "https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon")
 
 
 def print_pdf(page: str, base: Path, output: Path) -> None:

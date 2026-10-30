@@ -37,7 +37,7 @@ The project has just been born and will grow with the amateur radio community. E
 - ideas and builds: amplifiers and filters, transverters for other bands, other ESP32-S3 boards, higher symbol rates;
 - **review of the translations** of the web page and documents.
 
-Repository, issues and discussions: **{{REPO}}** — contact: **iz7pdx@gmail.com**
+Repository, issues and discussions: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — contact: **iz7pdx@gmail.com**
 
 *Warning: for licensed radio amateurs only, on the frequencies and at the power levels permitted by your licence, always
 with a suitable filter on the output.*

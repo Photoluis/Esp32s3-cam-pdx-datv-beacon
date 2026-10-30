@@ -39,7 +39,7 @@ El proyecto acaba de nacer y crecerá con la comunidad radioaficionada. Toda con
   símbolo más altas;
 - **revisión de las traducciones** de la página web y de los documentos.
 
-Repositorio, avisos y debates: **{{REPO}}** — contacto: **iz7pdx@gmail.com**
+Repositorio, avisos y debates: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — contacto: **iz7pdx@gmail.com**
 
 *Aviso: solo para radioaficionados con licencia válida, en las frecuencias y con las potencias que permita su licencia,
 siempre con un filtro adecuado en la salida.*

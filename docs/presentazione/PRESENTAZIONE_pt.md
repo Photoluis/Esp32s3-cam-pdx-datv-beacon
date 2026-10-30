@@ -39,7 +39,7 @@ O projeto acabou de nascer e vai crescer com a comunidade de radioamadores. Toda
   mais altas;
 - **revisão das traduções** da página web e dos documentos.
 
-Repositório, relatórios e discussões: **{{REPO}}** — contacto: **iz7pdx@gmail.com**
+Repositório, relatórios e discussões: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — contacto: **iz7pdx@gmail.com**
 
 *Aviso: apenas para radioamadores licenciados, nas frequências e com as potências permitidas pela sua licença, sempre com
 um filtro adequado na saída.*

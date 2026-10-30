@@ -55,7 +55,7 @@ Materiale pronto in `docs/presentazione/`: una presentazione per lingua (Markdow
 > DVB-S2 sono calcolati sulla scheda. 2300–2450 MHz (altre bande con un mixer), camera dal vivo e PiP, monoscopi
 > personalizzati dal telefono, configurazione in 11 lingue. Ricevuto con MER 23–27 dB su Portsdown 4 e Minitiouner.
 > Open source (GPL-3.0): provatelo, mandateci le vostre prove in aria e le idee per migliorarlo! 73 de IZ7PDX
-> {{REPO}}
+> https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
 
 ## Short text for social media (English)
 
@@ -63,7 +63,7 @@ Materiale pronto in `docs/presentazione/`: una presentazione per lingua (Markdow
 > chip's Wi-Fi transmitter is the I/Q modulator, while H.264/H.265 video, TS multiplexing and DVB-S2 coding all run on
 > the board. 2300–2450 MHz (other bands through a mixer), live camera and PiP, custom test cards from your phone, set-up
 > in 11 languages. Received with MER 23–27 dB on Portsdown 4 and Minitiouner. Open source (GPL-3.0): try it, send us
-> your on-air reports and ideas! 73 de IZ7PDX {{REPO}}
+> your on-air reports and ideas! 73 de IZ7PDX https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
 
 ## Fonti della ricerca (30/10/2026)
 

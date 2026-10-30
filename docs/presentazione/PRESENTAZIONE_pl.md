@@ -38,7 +38,7 @@ Projekt dopiero się narodził i będzie rósł razem ze społecznością krótk
   symbolowe;
 - **sprawdzenie tłumaczeń** strony internetowej i dokumentów.
 
-Repozytorium, zgłoszenia i dyskusje: **{{REPO}}** — kontakt: **iz7pdx@gmail.com**
+Repozytorium, zgłoszenia i dyskusje: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — kontakt: **iz7pdx@gmail.com**
 
 *Uwaga: wyłącznie dla krótkofalowców z ważnym pozwoleniem, na częstotliwościach i z mocami dozwolonymi przez pozwolenie,
 zawsze z odpowiednim filtrem na wyjściu.*

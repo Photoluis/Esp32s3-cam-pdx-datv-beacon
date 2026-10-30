@@ -37,7 +37,7 @@ Das Projekt ist gerade entstanden und wächst mit der Amateurfunk-Gemeinschaft. 
 - Ideen und Aufbauten: Verstärker und Filter, Transverter für andere Bänder, andere ESP32-S3-Platinen, höhere Symbolraten;
 - **Durchsicht der Übersetzungen** der Webseite und der Dokumente.
 
-Repository, Meldungen und Diskussionen: **{{REPO}}** — Kontakt: **iz7pdx@gmail.com**
+Repository, Meldungen und Diskussionen: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — Kontakt: **iz7pdx@gmail.com**
 
 *Hinweis: nur für lizenzierte Funkamateure, auf den Frequenzen und mit den Leistungen, die Ihre Lizenz erlaubt, immer mit
 einem geeigneten Filter am Ausgang.*

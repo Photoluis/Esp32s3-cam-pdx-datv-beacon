@@ -38,7 +38,7 @@ Il progetto è appena nato e cresce con la comunità radioamatoriale. Ogni contr
 - idee e realizzazioni: amplificatori e filtri, transverter per altre bande, altre schede ESP32-S3, symbol rate più alti;
 - **revisione delle traduzioni** della pagina web e dei documenti.
 
-Repository, segnalazioni e discussioni: **{{REPO}}** — contatto: **iz7pdx@gmail.com**
+Repository, segnalazioni e discussioni: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — contatto: **iz7pdx@gmail.com**
 
 *Avvertenza: da usare solo da radioamatori con licenza valida, sulle frequenze e con le potenze consentite, sempre con
 un filtro adeguato sull'uscita.*

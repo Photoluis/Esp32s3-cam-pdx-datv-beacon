@@ -38,7 +38,7 @@ Het project is net geboren en groeit met de radioamateurgemeenschap. Elke bijdra
   symboolsnelheden;
 - **nalezen van de vertalingen** van de webpagina en de documenten.
 
-Repository, meldingen en discussies: **{{REPO}}** — contact: **iz7pdx@gmail.com**
+Repository, meldingen en discussies: **https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon** — contact: **iz7pdx@gmail.com**
 
 *Let op: alleen voor gelicentieerde radioamateurs, op de frequenties en met de vermogens die uw machtiging toestaat,
 altijd met een geschikt filter op de uitgang.*

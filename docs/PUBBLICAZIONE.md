@@ -1,6 +1,6 @@
 # Pubblicazione su GitHub — timeline
 
-Progetto: **ESP32-S3-CAM_PDX DATV Beacon** — repository proposto `esp32s3-cam-pdx-datv-beacon` — contatto iz7pdx@gmail.com.
+Progetto: **ESP32-S3-CAM_PDX DATV Beacon** — repository https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon — contatto iz7pdx@gmail.com.
 
 Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l'ok di IZ7PDX.
 
@@ -47,7 +47,7 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
 
 ## 5. GitHub (8/11)
 
-- Da decidere con IZ7PDX: **nome dell'account**; repository `esp32s3-cam-pdx-datv-beacon`; descrizione,
+- Account **Photoluis** (IZ7PDX Luigi), repository `esp32s3-cam-pdx-datv-beacon` → https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon; descrizione,
   argomenti (`datv`, `dvb-s2`, `ham-radio`, `esp32-s3`, `amateur-television`, `13cm`).
 - Primo push della storia git locale (autore Luigi D'Arcangelo IZ7PDX), etichetta **v1.0.0**, release con firmware
   unico, PDF e note di rilascio.
