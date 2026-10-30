@@ -9,7 +9,7 @@ ESP32-S3: il trasmettitore Wi-Fi del chip viene usato come modulatore I/Q, mentr
 > RRC-shaped QPSK are all computed on the ESP32-S3. Received with MER 25–27 dB on a Minitiouner (Portsdown 4) at
 > 333 kS/s, QPSK 3/4. Work in progress; documentation in Italian for now.
 
-## Stato (30/10/2026)
+## Stato (30/10/2026, firmware RF0008)
 
 | Funzione | Stato |
 |---|---|
@@ -19,7 +19,16 @@ ESP32-S3: il trasmettitore Wi-Fi del chip viene usato come modulatore I/Q, mentr
 | Monoscopio H.265 640x360 25 fps + tono AAC, loop di 19,2 s senza interruzioni | collaudato |
 | Beacon autonomo (configurazione in NVS, partenza automatica, ciclo) | collaudato |
 | Configurazione da web (access point a TX ferma) e da seriale | collaudato |
-| Camera dal vivo (H.264 320x240), PiP sul monoscopio, monoscopio personalizzato | in sviluppo |
+| Camera dal vivo (H.264 320x240), PiP sul monoscopio, monoscopio personalizzato (immagine o video) | collaudato: MER 24–25 dB, 0 fotogrammi persi |
+| Pagina web in 6 lingue (IT, EN, DE, ES, FR, AR), livello in dB, FEC dal menu | collaudato |
+
+## Documentazione
+
+- [Il progetto](docs/PROGETTO.md): perché l'ESP32-S3, come funziona, tappe dello sviluppo, risultati
+  ([PDF completo](docs/Beacon_DATV_13cm_ESP32-S3_IZ7PDX.pdf), anche offline)
+- [Monoscopio personalizzato](docs/MONOSCOPIO.md): immagini dal telefono, video dal PC
+- [Prova MER / linearità](docs/TEST_MER_20261030.md) del 30/10/2026
+- [Timeline della pubblicazione](docs/PUBBLICAZIONE.md)
 
 ## Hardware
 
