@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--label-freq", default="", help="frequenza scritta nell'immagine (predefinito: nessuna; la frequenza finale arriva dalla SDT e dai modi dal vivo)")
     ap.add_argument("--image", help="immagine fissa (ritagliata/riquadrata a 640x360)")
     ap.add_argument("--video", help="video (ripetuto se più corto, tagliato se più lungo)")
+    ap.add_argument("--audio", help="audio al posto del tono da 1 kHz (ripetuto se più corto; per un loop perfetto: 19,2 s)")
+    ap.add_argument("--audio-kbps", type=int, default=32, help="bitrate AAC mono (32..64; il video si riduce di conseguenza)")
     ap.add_argument("--loops", type=int, default=1, help="durata del loop in multipli di 19,2 s (1..5)")
     ap.add_argument("--no-text", action="store_true", help="senza le scritte QRZ / frequenza / modulazione")
     ap.add_argument("--no-band", action="store_true", help="senza la fascia con scanner e contatore in basso")
@@ -85,6 +87,7 @@ def main():
         # audio più lungo del loop: se ne prendono 900 frame consecutivi (il primo arriva dopo il ritardo dell'encoder)
         make_symbols.make_ts(SimpleNamespace(callsign=a.callsign, label_freq=a.label_freq, fec=a.fec, fec_label="",
                                              sr=a.sr, image=a.image, video=a.video, no_text=a.no_text,
+                                             audio=a.audio, audio_kbps=a.audio_kbps,
                                              no_band=a.no_band),
                              bitrate, LOOP_S + 1.0, tsp, keyint=48, loop_s=LOOP_S)
         ts = Path(tsp).read_bytes()

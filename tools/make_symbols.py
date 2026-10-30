@@ -77,7 +77,7 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
     """monoscopio H.265 + tono AAC in un TS CBR a bitrate bit/s (ffmpeg).
     loop_s: aggiunge in basso una fascia per vedere i fotogrammi persi: barra a scanner (avanti e indietro in un GOP,
     un passo a ogni fotogramma), avanzamento del loop su una scala con una tacca al secondo, contatore e tempo."""
-    audio_k = 32
+    audio_k = getattr(a, "audio_kbps", None) or 32
     video_k = int(bitrate * 0.80 / 1000) - audio_k            # margine per PSI, PCR e riempimento CBR
     font = "C\\:/Windows/Fonts/arialbd.ttf"
     fec_txt = getattr(a, "fec_label", a.fec)
@@ -113,7 +113,8 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
     else:
         vargs = ["-filter_complex", f"[0:v]{fit},format=yuv420p,{text}[v]", "-map", "[v]", "-map", "1:a"]
     cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *vin,
-           "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000",
+           *(["-stream_loop", "-1", "-i", a.audio] if getattr(a, "audio", None)
+             else ["-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000"]),
            "-t", f"{duration:.3f}",
            *vargs,
            "-c:v", "libx265", "-preset", "medium", "-b:v", f"{video_k}k",

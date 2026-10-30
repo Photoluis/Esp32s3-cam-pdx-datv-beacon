@@ -17,13 +17,14 @@ il monoscopio standard H.265 non riporta la frequenza nell'immagine.
 
 ## Esempio pronto: il monoscopio di Halloween
 
-`docs/media/halloween_es.bin` è un video personalizzato pronto da caricare (pagina web o
+`docs/media/halloween_es.bin` è un video personalizzato con musica "spettrale" originale (organo, theremin, vento e
+campane), pronto da caricare (pagina web o
 `python upload_media.py COM3 VIDEO ../docs/media/halloween_es.bin`); l'anteprima è `docs/media/halloween.mp4`. Si rigenera
 con il proprio nominativo:
 
 ```
 python make_halloween.py --callsign IZ7PDX/B -o out/halloween.mp4
-python make_es.py --video out/halloween.mp4 --no-text --no-band -o out/halloween_es.bin
+python make_es.py --video out/halloween.mp4 --audio out/halloween.wav --audio-kbps 48 --no-text --no-band -o out/halloween_es.bin
 ```
 
 ## Immagine fissa dal telefono
@@ -52,7 +53,9 @@ python make_es.py --video mio_video.mp4 --loops 2 --no-band -o out/mio_es.bin
 - `--no-text`: senza le scritte QRZ/frequenza; `--no-band`: senza la fascia di controllo dei fotogrammi in basso.
 - `--callsign` e `--label-freq`: testo delle scritte.
 - Il file deve stare in **3 MB**. Il bitrate è calcolato per FEC 1/2, quindi il file va bene con tutti i FEC.
-- L'audio è sempre il tono da 1 kHz del beacon.
+- L'audio è il tono da 1 kHz del beacon; con `--audio file.wav` (o mp3) si usa una musica propria, ripetuta se più
+  corta (per un loop perfetto deve durare 19,2 s x `--loops`), e con `--audio-kbps 48` (fino a 64) suona meglio: il video
+  si riduce di conseguenza.
 
 Caricamento:
 - **pagina web dal PC** (collegato a `<QRZ>-BEACON`): *Video personalizzato* → scegliere `out/mio_es.bin` → *Carica video*;

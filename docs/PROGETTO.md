@@ -171,8 +171,9 @@ modulatore scrive centinaia di milioni di campioni con al massimo pochi campioni
 - **LED RGB di stato:** blu tenue in configurazione; in trasmissione un colore "di calore" proporzionale al livello,
   dal rosso scuro dei livelli bassi all'arancio, al giallo e al bianco a 0 dB.
 - **Monoscopio di Halloween:** un video originale (cielo al tramonto, luna, zucche con la candela che tremola,
-  pipistrelli e un fantasmino) generato da `tools/make_halloween.py`, pronto da caricare come video personalizzato
-  (`docs/media/halloween_es.bin`).
+  pipistrelli e un fantasmino) con una musica "spettrale" anch'essa originale, sintetizzata dallo stesso script
+  (bordone d'organo in re minore, theremin, vento, rintocchi di campana), generato da `tools/make_halloween.py` e pronto
+  da caricare come video personalizzato (`docs/media/halloween_es.bin`). Video e musica ripartono insieme ogni 19,2 s.
 
 ![Il monoscopio di Halloween (docs/media/halloween.mp4)](img/halloween.png)
 
