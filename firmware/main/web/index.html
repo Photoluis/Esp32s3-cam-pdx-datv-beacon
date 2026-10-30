@@ -46,7 +46,7 @@ small{color:var(--muted)}
 <div class="g">
 <label>Frequenza (MHz)<input name="freq" inputmode="decimal" id="freq"></label>
 <label>FEC (DVB-S2 QPSK, 333 kS)<select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
-<label>Livello (1–<span id="ampmax">480</span>)<input name="amp" inputmode="numeric" id="amp"></label>
+<label><span>Livello (1–<span id="ampmax">480</span>)</span><input name="amp" inputmode="numeric" id="amp"></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
 <label>Correzione DC I / Q<span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
 </div>
@@ -58,7 +58,7 @@ small{color:var(--muted)}
 <label>Monoscopio (s, 0 = saltato)<input name="mono" id="mono" inputmode="numeric"></label>
 <label>Monoscopio da trasmettere<select name="monosrc" id="monosrc"><option value="std">standard</option><option value="video">video personalizzato</option><option value="image">immagine personalizzata</option></select></label>
 <label>Camera dal vivo (s, 0 = saltata)<input name="cam" id="cam" inputmode="numeric"></label>
-<label>Camera<select name="cammode" id="cammode"><option value="pip">nel monoscopio (PiP)</option><option value="full">a pieno schermo</option></select></label>
+<label>Camera<select name="cammode" id="cammode"><option value="pip">PiP sul monoscopio</option><option value="full">a pieno schermo</option></select></label>
 <label>Sfondo del PiP<select name="pipbg" id="pipbg"><option value="std">barre standard</option><option value="image">immagine personalizzata</option></select></label>
 <label>Pausa senza TX (s)<input name="pause" id="pause" inputmode="numeric"></label>
 <label>Attesa all'accensione (s)<input name="wait" id="wait" inputmode="numeric"></label>
