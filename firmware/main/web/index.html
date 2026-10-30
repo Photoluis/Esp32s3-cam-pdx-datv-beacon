@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beacon DATV</title>
+<style>
+:root{--bg:#0f1418;--card:#182028;--line:#2a3642;--text:#e6edf3;--muted:#8b9aa8;--acc:#36c2ff;--ok:#3ccf7a;--warn:#ffb347;--bad:#ff5c5c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+h1{font-size:18px;margin:0}h1 span{color:var(--acc)}
+.st{font-size:13px;color:var(--muted)}
+main{padding:12px 16px;max-width:640px;margin:0 auto}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 12px}
+h2{font-size:14px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font-size:16px;width:100%}
+input:focus{outline:none;border-color:var(--acc)}
+.chk{flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--text)}
+.chk input{width:22px;height:22px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}.kv b{color:var(--muted);font-weight:500}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{border:0;border-radius:8px;padding:12px;font-size:15px;font-weight:600;color:#06121a;background:var(--acc)}
+button.sec{background:var(--line);color:var(--text)}
+button.go{background:var(--ok);grid-column:1/-1}
+#msg{min-height:20px;font-size:14px;margin:4px 0 10px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+small{color:var(--muted)}
+@media(max-width:420px){.g{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Beacon DATV <span id="call">…</span></h1><div class="st" id="st">connessione…</div></header>
+<main>
+<section><h2>Stato</h2>
+<div class="kv">
+<b>Firmware</b><span id="fw">–</span>
+<b>Modo</b><span id="mode">–</span>
+<b>Monoscopio</b><span id="sym">–</span>
+<b>Acceso da</b><span id="up">–</span>
+</div></section>
+
+<form id="f">
+<section><h2>Trasmissione</h2>
+<div class="g">
+<label>Frequenza (MHz)<input name="freq" inputmode="decimal" id="freq"></label>
+<label>Livello (1–<span id="ampmax">480</span>)<input name="amp" inputmode="numeric" id="amp"></label>
+<label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
+<label>Correzione DC I / Q<span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
+</div>
+<small>Banda ammessa <span id="band">2300–2450</span> MHz: usare solo le frequenze consentite dalla propria licenza.</small>
+</section>
+
+<section><h2>Ciclo del beacon</h2>
+<div class="g">
+<label>Monoscopio (s)<input name="mono" id="mono" inputmode="numeric"></label>
+<label>Camera dal vivo (s)<input name="cam" id="cam" inputmode="numeric"></label>
+<label>Pausa senza TX (s)<input name="pause" id="pause" inputmode="numeric"></label>
+<label>Attesa all'accensione (s)<input name="wait" id="wait" inputmode="numeric"></label>
+</div>
+<small>La camera dal vivo non è ancora disponibile: per ora il tempo impostato viene saltato.</small>
+<p><label class="chk"><input type="checkbox" id="auto"> Partenza automatica all'accensione (AUTO TX)</label></p>
+</section>
+
+<section><h2>Wi-Fi di configurazione</h2>
+<label>Nuova password (8–23 caratteri, vuoto = invariata)<input name="appass" id="appass" type="password" autocomplete="new-password"></label>
+<small>Il nome della rete è QRZ-BEACON. Le modifiche valgono dalla prossima accensione dell'access point.</small>
+</section>
+
+<div id="msg"></div>
+<div class="btns">
+<button type="submit">Applica</button>
+<button type="button" id="save">Applica e salva</button>
+<button type="button" class="sec" id="def">Valori predefiniti</button>
+<button type="button" class="sec" id="reload">Ricarica</button>
+<button type="button" class="go" id="start">AVVIA BEACON</button>
+</div>
+<p><small>Durante la trasmissione la radio Wi-Fi fa da modulatore DATV e questa pagina non è raggiungibile.
+Per fermare il beacon premere il pulsante BOOT della scheda (o un tasto sulla seriale).</small></p>
+</form>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function msg(t,c){const m=$('msg');m.textContent=t;m.className=c||''}
+function fill(c){for(const k of['freq','amp','dci','dcq','mono','cam','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto}
+async function status(full){
+ try{const r=await fetch('/api/status');const s=await r.json();
+  $('fw').textContent=s.fw;$('mode').textContent=s.mode;$('ampmax').textContent=s.ampmax;$('band').textContent=s.fmin+'–'+s.fmax;
+  $('sym').textContent=s.sym.ok?(s.sym.label+' · '+(s.sym.sr/1000)+' kS · loop '+s.sym.secs.toFixed(1)+' s'):'nessun file di simboli';
+  const u=s.uptime;$('up').textContent=Math.floor(u/3600)+' h '+Math.floor(u%3600/60)+' min';
+  $('st').textContent='collegato';$('st').className='st ok';
+  if(full)fill(s.cfg);
+ }catch(e){$('st').textContent='non raggiungibile';$('st').className='st bad'}}
+function body(){const d=new URLSearchParams(new FormData($('f')));d.set('auto',$('auto').checked?'on':'off');return d}
+async function post(u,b){const r=await fetch(u,{method:'POST',body:b});return r.json()}
+async function apply(){const j=await post('/api/set',body());$('appass').value='';fill(j.cfg);
+ if(j.ok)msg('Valori applicati (non ancora salvati).','ok');else msg('Errori: '+j.errors.join('; '),'bad');return j.ok}
+$('f').onsubmit=e=>{e.preventDefault();apply()};
+$('save').onclick=async()=>{if(await apply()){const j=await post('/api/save','');msg(j.msg,j.ok?'ok':'bad')}};
+$('def').onclick=async()=>{const j=await post('/api/defaults','');await status(true);msg(j.msg,'warn')};
+$('reload').onclick=()=>status(true).then(()=>msg('',''));
+$('start').onclick=async()=>{if(!confirm('Avviare il beacon con la configurazione applicata? Il Wi-Fi si spegnerà.'))return;
+ if(!await apply())return;const j=await post('/api/start','');msg(j.msg,'warn');$('st').textContent='beacon in TX';$('st').className='st warn'};
+status(true);setInterval(()=>status(false),5000);
+</script>
+</body>
+</html>

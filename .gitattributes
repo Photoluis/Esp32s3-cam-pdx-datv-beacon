@@ -1,0 +1,5 @@
+# fine riga LF nel repository, anche su Windows
+* text=auto eol=lf
+*.bin binary
+*.png binary
+*.jpg binary

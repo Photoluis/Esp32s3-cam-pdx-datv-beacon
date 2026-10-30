@@ -1,0 +1,29 @@
+# Beacon DATV IZ7PDX
+
+# riferimenti di terze parti (non ridistribuibili: PDF ETSI, ESP32-DATV-SA con licenza PolyForm Noncommercial)
+ref/
+
+# firmware ESP-IDF: build, componenti scaricati, configurazione generata
+firmware/build/
+firmware/build_*/
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/sdkconfig.v4cfg*
+firmware/sdkconfig.bis*
+firmware/*.log
+
+# prova hardware PlatformIO
+hwtest/.pio/
+hwtest/.vscode/
+
+# strumenti PC
+tools/.venv/
+tools/out/
+__pycache__/
+*.pyc
+
+# sistema
+.DS_Store
+Thumbs.db

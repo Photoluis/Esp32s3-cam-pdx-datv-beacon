@@ -1,0 +1,240 @@
+/* Beacon DATV 13 cm - IZ7PDX
+ * Access point Wi-Fi e server HTTP di configurazione. Il server gira sul core 1; le modifiche passano da pdx_cfg_set(),
+ * con gli stessi controlli del comando SET della seriale. */
+#include "web_ui.h"
+
+#include <stdio.h>
+#include <string.h>
+#include "esp_http_server.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "rf_s3.h"
+
+extern const char index_html_start[] asm("_binary_index_html_start");
+extern const char index_html_end[] asm("_binary_index_html_end");
+
+static pdx_cfg_t *cfg;
+static const char *fw;
+static httpd_handle_t server;
+static SemaphoreHandle_t cfg_mutex;
+static volatile bool start_request, client_seen;
+static bool radio_dirty;                     /* l'access point è stato acceso dall'avvio: la PHY non è più quella collaudata */
+static char mode_text[48] = "configurazione";
+static struct {
+    bool ok;
+    char label[40];
+    uint32_t sr, nsym;
+} sym;
+
+void pdx_cfg_lock(void) { if (cfg_mutex) xSemaphoreTake(cfg_mutex, portMAX_DELAY); }
+void pdx_cfg_unlock(void) { if (cfg_mutex) xSemaphoreGive(cfg_mutex); }
+
+void pdx_web_init(pdx_cfg_t *c, const char *fw_version)
+{
+    cfg = c;
+    fw = fw_version;
+    if (!cfg_mutex) cfg_mutex = xSemaphoreCreateMutex();
+}
+
+void pdx_web_set_mode(const char *mode) { snprintf(mode_text, sizeof(mode_text), "%s", mode); }
+
+void pdx_web_set_symbols(bool ok, const char *label, uint32_t sr, uint32_t nsym)
+{
+    sym.ok = ok;
+    sym.sr = sr;
+    sym.nsym = nsym;
+    /* solo caratteri sicuri nel JSON */
+    size_t j = 0;
+    for (size_t i = 0; label && label[i] && j < sizeof(sym.label) - 1; i++) {
+        const char ch = label[i];
+        sym.label[j++] = (ch >= 32 && ch < 127 && ch != '"' && ch != '\\') ? ch : '_';
+    }
+    sym.label[j] = 0;
+}
+
+bool pdx_web_take_start_request(void)
+{
+    const bool r = start_request;
+    start_request = false;
+    return r;
+}
+
+bool pdx_web_seen_client(void) { return client_seen; }
+bool pdx_web_radio_dirty(void) { return radio_dirty; }
+bool pdx_web_running(void) { return server != NULL; }
+
+/* ------------------------------------------------------------ risposte */
+
+static int cfg_json(char *b, size_t n)
+{
+    return snprintf(b, n,
+                    "{\"auto\":%d,\"freq\":%.3f,\"amp\":%d,\"dci\":%d,\"dcq\":%d,\"mono\":%u,\"cam\":%u,\"pause\":%u,"
+                    "\"wait\":%u,\"call\":\"%s\"}",
+                    cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->amp, cfg->dci, cfg->dcq, cfg->mono_s, cfg->cam_s,
+                    cfg->pause_s, cfg->boot_wait_s, cfg->callsign);
+}
+
+static esp_err_t send_json(httpd_req_t *r, const char *s)
+{
+    httpd_resp_set_type(r, "application/json");
+    httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(r, s);
+}
+
+static esp_err_t h_index(httpd_req_t *r)
+{
+    client_seen = true;
+    httpd_resp_set_type(r, "text/html; charset=utf-8");
+    return httpd_resp_send(r, index_html_start, index_html_end - index_html_start);
+}
+
+static esp_err_t h_status(httpd_req_t *r)
+{
+    client_seen = true;
+    char c[320], b[700];
+    pdx_cfg_lock();
+    cfg_json(c, sizeof(c));
+    pdx_cfg_unlock();
+    snprintf(b, sizeof(b),
+             "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
+             "\"sym\":{\"ok\":%s,\"label\":\"%s\",\"sr\":%u,\"secs\":%.2f},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d}",
+             fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, sym.ok ? "true" : "false", sym.label,
+             (unsigned)sym.sr, sym.sr ? (double)sym.nsym / sym.sr : 0.0, (unsigned)(PDX_RF_FMIN_KHZ / 1000),
+             (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX);
+    return send_json(r, b);
+}
+
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (; *s; s++) {
+        if (*s == '+') *o++ = ' ';
+        else if (*s == '%' && s[1] && s[2]) {
+            char hx[3] = {s[1], s[2], 0};
+            *o++ = (char)strtol(hx, NULL, 16);
+            s += 2;
+        } else *o++ = *s;
+    }
+    *o = 0;
+}
+
+/* POST /api/set  corpo "chiave=valore&chiave=valore" (form urlencoded) */
+static esp_err_t h_set(httpd_req_t *r)
+{
+    client_seen = true;
+    char body[512];
+    const int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
+    int got = 0;
+    while (got < len) {
+        const int k = httpd_req_recv(r, body + got, len - got);
+        if (k <= 0) return ESP_FAIL;
+        got += k;
+    }
+    body[got] = 0;
+    char errs[300] = "", c[320], out[700];
+    pdx_cfg_lock();
+    for (char *save = NULL, *kv = strtok_r(body, "&", &save); kv; kv = strtok_r(NULL, "&", &save)) {
+        char *eq = strchr(kv, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *key = kv, *val = eq + 1;
+        url_decode(key);
+        url_decode(val);
+        if (!strcmp(key, "appass") && !*val) continue;        /* campo password vuoto = invariata */
+        const char *why = pdx_cfg_set(cfg, key, val);
+        if (why) {
+            const size_t n = strlen(errs);
+            snprintf(errs + n, sizeof(errs) - n, "%s\"%s: %s\"", n ? "," : "", key, why);
+        }
+    }
+    cfg_json(c, sizeof(c));
+    pdx_cfg_unlock();
+    snprintf(out, sizeof(out), "{\"ok\":%s,\"errors\":[%s],\"cfg\":%s}", errs[0] ? "false" : "true", errs, c);
+    return send_json(r, out);
+}
+
+static esp_err_t h_save(httpd_req_t *r)
+{
+    pdx_cfg_lock();
+    const bool ok = pdx_cfg_save(cfg);
+    pdx_cfg_unlock();
+    return send_json(r, ok ? "{\"ok\":true,\"msg\":\"configurazione salvata\"}" : "{\"ok\":false,\"msg\":\"errore NVS\"}");
+}
+
+static esp_err_t h_defaults(httpd_req_t *r)
+{
+    pdx_cfg_lock();
+    char pass[sizeof(cfg->ap_pass)];
+    strcpy(pass, cfg->ap_pass);                              /* la password resta: non si perde l'accesso */
+    pdx_cfg_defaults(cfg);
+    strcpy(cfg->ap_pass, pass);
+    pdx_cfg_unlock();
+    return send_json(r, "{\"ok\":true,\"msg\":\"valori predefiniti (non ancora salvati)\"}");
+}
+
+static esp_err_t h_start(httpd_req_t *r)
+{
+    start_request = true;
+    return send_json(r, "{\"ok\":true,\"msg\":\"beacon in partenza: il Wi-Fi si spegne. Per fermarlo premere BOOT.\"}");
+}
+
+/* ------------------------------------------------------------ access point e server */
+
+bool pdx_web_start(void)
+{
+    if (server) return true;
+    wifi_config_t ap = {0};
+    pdx_cfg_lock();
+    snprintf((char *)ap.ap.ssid, sizeof(ap.ap.ssid), "%s-BEACON", cfg->callsign);
+    snprintf((char *)ap.ap.password, sizeof(ap.ap.password), "%s", cfg->ap_pass);
+    pdx_cfg_unlock();
+    ap.ap.ssid_len = (uint8_t)strlen((char *)ap.ap.ssid);
+    ap.ap.channel = 1;
+    ap.ap.max_connection = 2;
+    ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap.ap.pmf_cfg.required = false;
+    radio_dirty = true;
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_stop();
+    if (esp_wifi_set_mode(WIFI_MODE_AP) != ESP_OK || esp_wifi_set_config(WIFI_IF_AP, &ap) != ESP_OK ||
+        esp_wifi_start() != ESP_OK) {
+        printf("WEB ERR access point\n");
+        pdx_rf_wifi_null();
+        return false;
+    }
+    httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
+    hc.core_id = 1;
+    hc.stack_size = 6144;
+    hc.max_uri_handlers = 8;
+    hc.lru_purge_enable = true;
+    if (httpd_start(&server, &hc) != ESP_OK) {
+        printf("WEB ERR server\n");
+        server = NULL;
+        pdx_rf_wifi_null();
+        return false;
+    }
+    const httpd_uri_t uris[] = {
+        {.uri = "/", .method = HTTP_GET, .handler = h_index},
+        {.uri = "/api/status", .method = HTTP_GET, .handler = h_status},
+        {.uri = "/api/set", .method = HTTP_POST, .handler = h_set},
+        {.uri = "/api/save", .method = HTTP_POST, .handler = h_save},
+        {.uri = "/api/defaults", .method = HTTP_POST, .handler = h_defaults},
+        {.uri = "/api/start", .method = HTTP_POST, .handler = h_start},
+    };
+    for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(server, &uris[i]);
+    client_seen = false;
+    start_request = false;
+    printf("WEB access point \"%s\" attivo: http://192.168.4.1\n", (char *)ap.ap.ssid);
+    return true;
+}
+
+void pdx_web_stop(void)
+{
+    if (!server) return;
+    httpd_stop(server);
+    server = NULL;
+    pdx_rf_wifi_null();
+    printf("WEB access point spento (Wi-Fi nello stato del modulatore)\n");
+}

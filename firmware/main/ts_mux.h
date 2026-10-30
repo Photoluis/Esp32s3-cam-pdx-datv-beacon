@@ -1,0 +1,52 @@
+/* Beacon DATV 13 cm - IZ7PDX
+ * Multiplexer MPEG-TS sull'ESP (fase C2): un programma, PAT/PMT/SDT, PCR su un PID dedicato, PES video e audio con
+ * timestamp sempre crescenti, CBR al bitrate del MODCOD (pacchetti nulli). Sorgente: flussi elementari "PDXES001"
+ * (tools/make_es.py) ripetuti in loop aggiungendo a ogni giro la durata del loop. */
+#pragma once
+#include <stdbool.h>
+#include <stdint.h>
+
+#define PDX_ES_OFFSET 0x600000u          /* file PDXES001 nella partizione "symbols" */
+
+typedef struct {
+    char magic[8];
+    uint32_t nunits, loop_ticks, vtype, atype, data_off;
+    char label[36];
+} pdx_es_header_t;
+
+typedef struct {
+    uint8_t kind, rsv[3];                /* 0 video, 1 audio */
+    uint32_t pts, off, len;
+} pdx_es_unit_t;
+
+typedef struct {
+    const uint8_t *data;                 /* file mappato */
+    const pdx_es_header_t *hdr;
+    const pdx_es_unit_t *units;
+    uint32_t loop;                       /* giri completati del loop di questo flusso */
+    uint32_t next;                       /* prossima unità di questo tipo */
+    /* PES in corso */
+    uint8_t ph[14];
+    uint32_t ph_len, ph_pos;
+    const uint8_t *pl;
+    uint32_t pl_rem;
+    bool active;
+} pdx_es_cursor_t;
+
+typedef struct {
+    double rate;                         /* bit/s del TS */
+    uint64_t n;                          /* pacchetti emessi */
+    uint64_t pts_base;                   /* 90 kHz: tempo di presentazione dell'inizio del primo giro */
+    uint64_t next_psi, next_sdt, next_pcr;   /* in pacchetti */
+    uint8_t cc[5];                       /* PAT, PMT, SDT, video, audio */
+    uint8_t psi_pending;                 /* 1 = PMT da inviare dopo la PAT */
+    char service[24], provider[24];
+    const pdx_es_header_t *es;
+    pdx_es_cursor_t v, a;
+    uint32_t late;                       /* PES iniziati dopo il loro tempo di decodifica */
+    uint32_t stats_null, stats_video, stats_audio;
+} pdx_mux_t;
+
+/* apre il file ES mappato; NULL se riuscito, altrimenti il motivo */
+const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider);
+void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188]);      /* prossimo pacchetto da 188 byte */

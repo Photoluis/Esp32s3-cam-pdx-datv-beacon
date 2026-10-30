@@ -1,0 +1,7 @@
+# Beacon DATV IZ7PDX - flash 16 MB
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   24K
+phy_init, data, phy,     0xf000,   4K
+factory,  app,  factory, 0x10000,  2M
+# simboli DVB-S2 preparati sul PC (tools/make_symbols.py), scritti con esptool a 0x210000
+symbols,  data, 0x40,    0x210000, 0xDF0000
