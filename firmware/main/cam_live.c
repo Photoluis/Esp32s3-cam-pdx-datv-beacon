@@ -34,6 +34,12 @@ const char *pdx_cam_live_init(int fps, int kbps, bool camera)
         if (esp_camera_init(&c) != ESP_OK) return "camera";
         sensor_t *s = esp_camera_sensor_get();
         if (s && s->set_hmirror) s->set_hmirror(s, 1);    /* la OV3660 di questa scheda dà l'immagine specchiata */
+        /* i primi fotogrammi dopo l'accensione arrivano lenti: scartati qui, prima che parta la TX (con la TX già in
+         * corso svuotavano il buffer dei simboli, 30/10: 4395 volte nel primo segmento PiP) */
+        for (int i = 0; i < 4; i++) {
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (fb) esp_camera_fb_return(fb);
+        }
         cam_ok = true;
     }
     if (!work && !(work = heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM))) return "memoria";
