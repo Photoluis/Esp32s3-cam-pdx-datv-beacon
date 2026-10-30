@@ -7,10 +7,14 @@
 <style>
 :root{--bg:#0f1418;--card:#182028;--line:#2a3642;--text:#e6edf3;--muted:#8b9aa8;--acc:#36c2ff;--ok:#3ccf7a;--warn:#ffb347;--bad:#ff5c5c}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans Arabic",sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 h1{font-size:18px;margin:0}h1 span{color:var(--acc)}
 .st{font-size:13px;color:var(--muted)}
+#langs{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+#langs button{background:transparent;border:2px solid transparent;border-radius:6px;padding:2px;line-height:0;cursor:pointer}
+#langs button.on{border-color:var(--acc)}
+#langs svg{width:30px;height:20px;border-radius:2px;display:block}
 main{padding:12px 16px;max-width:640px;margin:0 auto}
 section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 12px}
 h2{font-size:14px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
@@ -18,8 +22,9 @@ h2{font-size:14px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;le
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
 input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font-size:16px;width:100%}
 input:focus,select:focus{outline:none;border-color:var(--acc)}
+input[inputmode],input[type=number]{direction:ltr}
 .chk{flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--text)}
-.chk input{width:22px;height:22px}
+.chk input{width:22px;height:22px;flex:none}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}.kv b{color:var(--muted);font-weight:500}
 .btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 button{border:0;border-radius:8px;padding:12px;font-size:15px;font-weight:600;color:#06121a;background:var(--acc)}
@@ -32,106 +37,272 @@ small{color:var(--muted)}
 </style>
 </head>
 <body>
-<header><h1>Beacon DATV <span id="call">…</span></h1><div class="st" id="st">connessione…</div></header>
+<header><h1><span data-t="title">Beacon DATV</span> <span id="call">…</span></h1><div class="st" id="st"></div>
+<div id="langs"></div></header>
 <main>
-<section><h2>Stato</h2>
+<section><h2 data-t="s_status"></h2>
 <div class="kv">
 <b>Firmware</b><span id="fw">–</span>
-<b>Modo</b><span id="mode">–</span>
-<b>Acceso da</b><span id="up">–</span>
+<b data-t="mode"></b><span id="mode">–</span>
+<b data-t="up"></b><span id="up">–</span>
 </div></section>
 
 <form id="f">
-<section><h2>Trasmissione</h2>
+<section><h2 data-t="s_tx"></h2>
 <div class="g">
-<label>Frequenza (MHz)<input name="freq" inputmode="decimal" id="freq"></label>
-<label>FEC (DVB-S2 QPSK, 333 kS)<select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
-<label>Livello (dB, 0 = massimo)<input name="level" id="level" type="number" step="0.1" min="-40" max="0" inputmode="decimal"></label>
+<label><span data-t="freq"></span><input name="freq" inputmode="decimal" id="freq"></label>
+<label><span data-t="fec"></span><select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
+<label><span data-t="level"></span><input name="level" id="level" type="number" step="0.1" min="-40" max="0" inputmode="decimal"></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
-<label>Correzione DC I / Q<span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
+<label><span data-t="dc"></span><span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
 </div>
-<small>Livello in dB teorici rispetto al massimo del modulatore (-6 dB = metà ampiezza), da -40 a 0: la potenza reale
-in dBm dipende dalla scheda e verrà tarata con una misura.<br>Banda ammessa <span id="band">2300–2450</span> MHz: usare solo le frequenze consentite dalla propria licenza.</small>
+<small><span data-t="lvl_note"></span><br><span data-t="band1"></span> <bdi id="band">2300–2450</bdi> <span data-t="band2"></span></small>
 </section>
 
-<section><h2>Ciclo del beacon</h2>
+<section><h2 data-t="s_cycle"></h2>
 <div class="g">
-<label>Monoscopio (s, 0 = saltato)<input name="mono" id="mono" inputmode="numeric"></label>
-<label>Monoscopio da trasmettere<select name="monosrc" id="monosrc"><option value="std">standard</option><option value="video">video personalizzato</option><option value="image">immagine personalizzata</option></select></label>
-<label>Camera dal vivo (s, 0 = saltata)<input name="cam" id="cam" inputmode="numeric"></label>
-<label>Camera<select name="cammode" id="cammode"><option value="pip">PiP sul monoscopio</option><option value="full">a pieno schermo</option></select></label>
-<label>Sfondo del PiP<select name="pipbg" id="pipbg"><option value="std">barre standard</option><option value="image">immagine personalizzata</option></select></label>
-<label>Pausa senza TX (s)<input name="pause" id="pause" inputmode="numeric"></label>
-<label>Attesa all'accensione (s)<input name="wait" id="wait" inputmode="numeric"></label>
+<label><span data-t="mono"></span><input name="mono" id="mono" inputmode="numeric"></label>
+<label><span data-t="monosrc"></span><select name="monosrc" id="monosrc"><option value="std" data-t="o_std"></option><option value="video" data-t="o_video"></option><option value="image" data-t="o_image"></option></select></label>
+<label><span data-t="cam"></span><input name="cam" id="cam" inputmode="numeric"></label>
+<label><span data-t="cammode"></span><select name="cammode" id="cammode"><option value="pip" data-t="o_pip"></option><option value="full" data-t="o_full"></option></select></label>
+<label><span data-t="pipbg"></span><select name="pipbg" id="pipbg"><option value="std" data-t="o_bars"></option><option value="image" data-t="o_image"></option></select></label>
+<label><span data-t="pause"></span><input name="pause" id="pause" inputmode="numeric"></label>
+<label><span data-t="wait"></span><input name="wait" id="wait" inputmode="numeric"></label>
 </div>
-<small>Solo monoscopio: camera a 0 s. Solo camera: monoscopio a 0 s. Camera e immagini personalizzate vanno in H.264 320x240,
-il monoscopio standard e i video personalizzati come sono stati preparati (H.265 640x360).</small>
-<p><label class="chk"><input type="checkbox" id="ovl"> QRZ e frequenza in sovrimpressione (camera, PiP, immagine)</label></p>
-<p><label class="chk"><input type="checkbox" id="auto"> Partenza automatica all'accensione (AUTO TX)</label></p>
+<small data-t="cycle_note"></small>
+<p><label class="chk"><input type="checkbox" id="ovl"> <span data-t="ovl"></span></label></p>
+<p><label class="chk"><input type="checkbox" id="auto"> <span data-t="auto"></span></label></p>
 </section>
 
-<section><h2>Wi-Fi di configurazione</h2>
-<label>Nuova password (8–23 caratteri, vuoto = invariata)<input name="appass" id="appass" type="password" autocomplete="new-password"></label>
-<small>Il nome della rete è QRZ-BEACON. Le modifiche valgono dalla prossima accensione dell'access point.</small>
+<section><h2 data-t="s_wifi"></h2>
+<label><span data-t="appass"></span><input name="appass" id="appass" type="password" autocomplete="new-password"></label>
+<small data-t="wifi_note"></small>
 </section>
 
 <div id="msg"></div>
 <div class="btns">
-<button type="submit">Applica</button>
-<button type="button" id="save">Applica e salva</button>
-<button type="button" class="sec" id="def">Valori predefiniti</button>
-<button type="button" class="sec" id="reload">Ricarica</button>
-<button type="button" class="go" id="start">AVVIA BEACON</button>
+<button type="submit" data-t="b_apply"></button>
+<button type="button" id="save" data-t="b_save"></button>
+<button type="button" class="sec" id="def" data-t="b_def"></button>
+<button type="button" class="sec" id="reload" data-t="b_reload"></button>
+<button type="button" class="go" id="start" data-t="b_start"></button>
 </div>
-<p><small>Durante la trasmissione la radio Wi-Fi fa da modulatore DATV e questa pagina non è raggiungibile.
-Per fermare il beacon premere il pulsante BOOT della scheda (o un tasto sulla seriale).</small></p>
+<p><small data-t="tx_note"></small></p>
 </form>
 
-<section><h2>Monoscopi</h2>
+<section><h2 data-t="s_media"></h2>
 <div class="kv">
-<b>Standard</b><span id="m_es_std">–</span>
-<b>Sfondo PiP</b><span id="m_img_std">–</span>
-<b>Video pers.</b><span id="m_es_usr">–</span>
-<b>Immagine pers.</b><span id="m_img_usr">–</span>
+<b data-t="m_std"></b><span id="m_es_std">–</span>
+<b data-t="m_bg"></b><span id="m_img_std">–</span>
+<b data-t="m_vid"></b><span id="m_es_usr">–</span>
+<b data-t="m_img"></b><span id="m_img_usr">–</span>
 </div>
-<small>Il monoscopio standard e lo sfondo del PiP sono protetti: si possono solo affiancare con quelli personalizzati.</small>
-<h2 style="margin-top:14px">Immagine personalizzata (dal telefono o dal PC)</h2>
+<small data-t="media_note"></small>
+<h2 style="margin-top:14px" data-t="s_img"></h2>
 <input type="file" id="imgfile" accept="image/*">
 <canvas id="prev" width="320" height="240" style="width:100%;max-width:320px;margin:8px 0;border:1px solid var(--line);display:none"></canvas>
-<div class="btns"><button type="button" id="imgup" disabled>Carica immagine</button><button type="button" class="sec" id="imgdel">Cancella immagine</button></div>
-<small>L'immagine viene ritagliata a 4:3 e ridotta a 320x240 qui nel browser, poi trasmessa in H.264 come monoscopio fisso o come sfondo del PiP.</small>
-<h2 style="margin-top:14px">Video personalizzato (preparato sul PC)</h2>
+<div class="btns"><button type="button" id="imgup" disabled data-t="b_imgup"></button><button type="button" class="sec" id="imgdel" data-t="b_imgdel"></button></div>
+<small data-t="img_note"></small>
+<h2 style="margin-top:14px" data-t="s_vid"></h2>
 <input type="file" id="esfile" accept=".bin">
-<div class="btns" style="margin-top:8px"><button type="button" id="esup" disabled>Carica video</button><button type="button" class="sec" id="esdel">Cancella video</button></div>
-<small>File <b>.bin</b> creato con <code>tools/make_es.py --video mio.mp4</code> (oppure <code>--image</code>): istruzioni in docs/MONOSCOPIO.md. Massimo <span id="esmax">3</span> MB.</small>
+<div class="btns" style="margin-top:8px"><button type="button" id="esup" disabled data-t="b_esup"></button><button type="button" class="sec" id="esdel" data-t="b_esdel"></button></div>
+<small data-t="vid_note"></small>
 <div id="umsg" style="min-height:20px;font-size:14px;margin-top:8px"></div>
 </section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-function msg(t,c){const m=$('msg');m.textContent=t;m.className=c||''}
+// ---- lingue: dizionario (le chiavi sono quelle degli attributi data-t e dei messaggi)
+const FLAGS={
+it:'<svg viewBox="0 0 3 2"><path fill="#009246" d="M0 0h1v2H0z"/><path fill="#fff" d="M1 0h1v2H1z"/><path fill="#ce2b37" d="M2 0h1v2H2z"/></svg>',
+en:'<svg viewBox="0 0 60 30"><clipPath id="u"><path d="M0 0v30h60V0z"/></clipPath><g clip-path="url(#u)"><path fill="#012169" d="M0 0v30h60V0z"/><path stroke="#fff" stroke-width="6" d="M0 0l60 30m0-30L0 30"/><path stroke="#c8102e" stroke-width="2" d="M0 0l60 30m0-30L0 30"/><path stroke="#fff" stroke-width="10" d="M30 0v30M0 15h60"/><path stroke="#c8102e" stroke-width="6" d="M30 0v30M0 15h60"/></g></svg>',
+de:'<svg viewBox="0 0 5 3"><path d="M0 0h5v1H0z"/><path fill="#d00" d="M0 1h5v1H0z"/><path fill="#ffce00" d="M0 2h5v1H0z"/></svg>',
+es:'<svg viewBox="0 0 3 2"><path fill="#aa151b" d="M0 0h3v2H0z"/><path fill="#f1bf00" d="M0 .5h3v1H0z"/></svg>',
+fr:'<svg viewBox="0 0 3 2"><path fill="#0055a4" d="M0 0h1v2H0z"/><path fill="#fff" d="M1 0h1v2H1z"/><path fill="#ef4135" d="M2 0h1v2H2z"/></svg>',
+ar:'<svg viewBox="0 0 12 6"><path fill="#00732f" d="M0 0h12v2H0z"/><path fill="#fff" d="M0 2h12v2H0z"/><path d="M0 4h12v2H0z"/><path fill="#f00" d="M0 0h3v6H0z"/></svg>'};
+const NAMES={it:'Italiano',en:'English',de:'Deutsch',es:'Español',fr:'Français',ar:'العربية'};
+const T={
+it:{title:'Beacon DATV',conn:'connessione…',online:'collegato',offline:'non raggiungibile',intx:'beacon in TX',s_status:'Stato',mode:'Modo',up:'Acceso da',
+s_tx:'Trasmissione',freq:'Frequenza (MHz)',fec:'FEC (DVB-S2 QPSK, 333 kS)',level:'Livello (dB, 0 = massimo)',dc:'Correzione DC I / Q',
+lvl_note:'Livello in dB teorici rispetto al massimo del modulatore (−6 dB = metà ampiezza), da −40 a 0. La potenza reale in dBm dipende dalla scheda e va tarata con una misura.',
+band1:'Banda ammessa',band2:'MHz: usare solo le frequenze consentite dalla propria licenza.',
+s_cycle:'Ciclo del beacon',mono:'Monoscopio (s, 0 = saltato)',monosrc:'Monoscopio da trasmettere',o_std:'standard',o_video:'video personalizzato',o_image:'immagine personalizzata',
+cam:'Camera dal vivo (s, 0 = saltata)',cammode:'Camera',o_pip:'PiP sul monoscopio',o_full:'a pieno schermo',pipbg:'Sfondo del PiP',o_bars:'barre standard',
+pause:'Pausa senza TX (s)',wait:'Attesa all\'accensione (s)',
+cycle_note:'Solo monoscopio: camera a 0 s. Solo camera: monoscopio a 0 s. Camera e immagini personalizzate vanno in H.264 320x240, il monoscopio standard e i video personalizzati come sono stati preparati (H.265 640x360).',
+ovl:'QRZ e frequenza in sovrimpressione (camera, PiP, immagine)',auto:'Partenza automatica all\'accensione (AUTO TX)',
+s_wifi:'Wi-Fi di configurazione',appass:'Nuova password (8–23 caratteri, vuoto = invariata)',wifi_note:'Il nome della rete è QRZ-BEACON. Le modifiche valgono dalla prossima accensione dell\'access point.',
+b_apply:'Applica',b_save:'Applica e salva',b_def:'Valori predefiniti',b_reload:'Ricarica',b_start:'AVVIA BEACON',
+tx_note:'Durante la trasmissione la radio Wi-Fi fa da modulatore DATV e questa pagina non è raggiungibile. Per fermare il beacon premere il pulsante BOOT della scheda (o un tasto sulla seriale).',
+s_media:'Monoscopi',m_std:'Standard',m_bg:'Sfondo PiP',m_vid:'Video pers.',m_img:'Immagine pers.',
+media_note:'Il monoscopio standard e lo sfondo del PiP sono protetti: si possono solo affiancare con quelli personalizzati.',
+s_img:'Immagine personalizzata (dal telefono o dal PC)',b_imgup:'Carica immagine',b_imgdel:'Cancella immagine',
+img_note:'L\'immagine viene ritagliata a 4:3 e ridotta a 320x240 qui nel browser, poi trasmessa in H.264 come monoscopio fisso o come sfondo del PiP.',
+s_vid:'Video personalizzato (preparato sul PC)',b_esup:'Carica video',b_esdel:'Cancella video',
+vid_note:'File <b>.bin</b> creato con <code>tools/make_es.py --video mio.mp4</code> (oppure <code>--image</code>): istruzioni in docs/MONOSCOPIO.md. Massimo {max} MB.',
+applied:'Valori applicati (non ancora salvati).',errors:'Valori non validi',confirm_start:'Avviare il beacon con la configurazione applicata? Il Wi-Fi si spegnerà.',
+preview:'Anteprima pronta',uploading:'Caricamento in corso…',upload_fail:'Caricamento interrotto',confirm_erase:'Cancellare il file personalizzato? Quello standard resta.',
+saved:'Configurazione salvata.',nvs_err:'Errore di scrittura in memoria.',defaults:'Valori predefiniti (non ancora salvati).',
+starting:'Beacon in partenza: il Wi-Fi si spegne. Per fermarlo premere BOOT.',loaded:'Caricato',erased:'File personalizzato cancellato.',erase_fail:'Cancellazione non riuscita.',
+mode_cfg:'configurazione',mode_tx:'beacon in TX',mode_test:'prova in TX',absent:'assente',error:'Errore'},
+en:{title:'DATV Beacon',conn:'connecting…',online:'connected',offline:'unreachable',intx:'beacon on air',s_status:'Status',mode:'Mode',up:'Uptime',
+s_tx:'Transmission',freq:'Frequency (MHz)',fec:'FEC (DVB-S2 QPSK, 333 kS)',level:'Level (dB, 0 = maximum)',dc:'DC correction I / Q',
+lvl_note:'Level in theoretical dB relative to the modulator maximum (−6 dB = half amplitude), from −40 to 0. The real power in dBm depends on the board and must be calibrated by measurement.',
+band1:'Allowed band',band2:'MHz: use only the frequencies permitted by your licence.',
+s_cycle:'Beacon cycle',mono:'Test card (s, 0 = skipped)',monosrc:'Test card to transmit',o_std:'standard',o_video:'custom video',o_image:'custom image',
+cam:'Live camera (s, 0 = skipped)',cammode:'Camera',o_pip:'PiP on the test card',o_full:'full screen',pipbg:'PiP background',o_bars:'standard bars',
+pause:'Pause without TX (s)',wait:'Delay at power-on (s)',
+cycle_note:'Test card only: camera 0 s. Camera only: test card 0 s. Camera and custom images are sent as H.264 320x240, the standard test card and custom videos as prepared (H.265 640x360).',
+ovl:'Callsign and frequency overlay (camera, PiP, image)',auto:'Automatic start at power-on (AUTO TX)',
+s_wifi:'Configuration Wi-Fi',appass:'New password (8–23 characters, empty = unchanged)',wifi_note:'The network name is CALLSIGN-BEACON. Changes apply the next time the access point is switched on.',
+b_apply:'Apply',b_save:'Apply and save',b_def:'Defaults',b_reload:'Reload',b_start:'START BEACON',
+tx_note:'While transmitting, the Wi-Fi radio works as the DATV modulator and this page cannot be reached. To stop the beacon press the BOOT button on the board (or any key on the serial port).',
+s_media:'Test cards',m_std:'Standard',m_bg:'PiP background',m_vid:'Custom video',m_img:'Custom image',
+media_note:'The standard test card and PiP background are protected: they can only be complemented by custom ones.',
+s_img:'Custom image (from phone or PC)',b_imgup:'Upload image',b_imgdel:'Delete image',
+img_note:'The image is cropped to 4:3 and scaled to 320x240 here in the browser, then transmitted in H.264 as a still test card or as the PiP background.',
+s_vid:'Custom video (prepared on the PC)',b_esup:'Upload video',b_esdel:'Delete video',
+vid_note:'<b>.bin</b> file created with <code>tools/make_es.py --video my.mp4</code> (or <code>--image</code>): see docs/MONOSCOPIO.md. Maximum {max} MB.',
+applied:'Values applied (not saved yet).',errors:'Invalid values',confirm_start:'Start the beacon with the applied configuration? Wi-Fi will switch off.',
+preview:'Preview ready',uploading:'Uploading…',upload_fail:'Upload interrupted',confirm_erase:'Delete the custom file? The standard one stays.',
+saved:'Configuration saved.',nvs_err:'Memory write error.',defaults:'Default values (not saved yet).',
+starting:'Beacon starting: Wi-Fi switches off. Press BOOT to stop it.',loaded:'Uploaded',erased:'Custom file deleted.',erase_fail:'Delete failed.',
+mode_cfg:'configuration',mode_tx:'beacon on air',mode_test:'test transmission',absent:'not present',error:'Error'},
+de:{title:'DATV-Bake',conn:'Verbindung…',online:'verbunden',offline:'nicht erreichbar',intx:'Bake sendet',s_status:'Status',mode:'Modus',up:'Eingeschaltet seit',
+s_tx:'Sendung',freq:'Frequenz (MHz)',fec:'FEC (DVB-S2 QPSK, 333 kS)',level:'Pegel (dB, 0 = Maximum)',dc:'DC-Korrektur I / Q',
+lvl_note:'Pegel in theoretischen dB bezogen auf das Maximum des Modulators (−6 dB = halbe Amplitude), von −40 bis 0. Die tatsächliche Leistung in dBm hängt von der Platine ab und muss durch Messung kalibriert werden.',
+band1:'Zulässiges Band',band2:'MHz: nur die durch Ihre Lizenz erlaubten Frequenzen verwenden.',
+s_cycle:'Bakenzyklus',mono:'Testbild (s, 0 = übersprungen)',monosrc:'Zu sendendes Testbild',o_std:'Standard',o_video:'eigenes Video',o_image:'eigenes Bild',
+cam:'Live-Kamera (s, 0 = übersprungen)',cammode:'Kamera',o_pip:'PiP im Testbild',o_full:'Vollbild',pipbg:'PiP-Hintergrund',o_bars:'Standard-Farbbalken',
+pause:'Pause ohne Sendung (s)',wait:'Wartezeit beim Einschalten (s)',
+cycle_note:'Nur Testbild: Kamera 0 s. Nur Kamera: Testbild 0 s. Kamera und eigene Bilder werden als H.264 320x240 gesendet, das Standard-Testbild und eigene Videos wie vorbereitet (H.265 640x360).',
+ovl:'Rufzeichen und Frequenz einblenden (Kamera, PiP, Bild)',auto:'Automatischer Start beim Einschalten (AUTO TX)',
+s_wifi:'Konfigurations-WLAN',appass:'Neues Passwort (8–23 Zeichen, leer = unverändert)',wifi_note:'Der Netzwerkname ist RUFZEICHEN-BEACON. Änderungen gelten ab dem nächsten Einschalten des Access Points.',
+b_apply:'Übernehmen',b_save:'Übernehmen und speichern',b_def:'Standardwerte',b_reload:'Neu laden',b_start:'BAKE STARTEN',
+tx_note:'Während der Sendung arbeitet das WLAN-Funkteil als DATV-Modulator und diese Seite ist nicht erreichbar. Zum Anhalten der Bake die BOOT-Taste der Platine drücken (oder eine Taste an der seriellen Schnittstelle).',
+s_media:'Testbilder',m_std:'Standard',m_bg:'PiP-Hintergrund',m_vid:'Eigenes Video',m_img:'Eigenes Bild',
+media_note:'Das Standard-Testbild und der PiP-Hintergrund sind geschützt: sie können nur durch eigene ergänzt werden.',
+s_img:'Eigenes Bild (vom Telefon oder PC)',b_imgup:'Bild hochladen',b_imgdel:'Bild löschen',
+img_note:'Das Bild wird hier im Browser auf 4:3 zugeschnitten und auf 320x240 verkleinert, dann in H.264 als festes Testbild oder als PiP-Hintergrund gesendet.',
+s_vid:'Eigenes Video (am PC vorbereitet)',b_esup:'Video hochladen',b_esdel:'Video löschen',
+vid_note:'<b>.bin</b>-Datei, erstellt mit <code>tools/make_es.py --video mein.mp4</code> (oder <code>--image</code>): siehe docs/MONOSCOPIO.md. Maximal {max} MB.',
+applied:'Werte übernommen (noch nicht gespeichert).',errors:'Ungültige Werte',confirm_start:'Bake mit der übernommenen Konfiguration starten? Das WLAN wird abgeschaltet.',
+preview:'Vorschau bereit',uploading:'Wird hochgeladen…',upload_fail:'Hochladen abgebrochen',confirm_erase:'Eigene Datei löschen? Die Standarddatei bleibt erhalten.',
+saved:'Konfiguration gespeichert.',nvs_err:'Fehler beim Schreiben in den Speicher.',defaults:'Standardwerte (noch nicht gespeichert).',
+starting:'Bake startet: das WLAN wird abgeschaltet. Zum Anhalten BOOT drücken.',loaded:'Hochgeladen',erased:'Eigene Datei gelöscht.',erase_fail:'Löschen fehlgeschlagen.',
+mode_cfg:'Konfiguration',mode_tx:'Bake sendet',mode_test:'Testsendung',absent:'nicht vorhanden',error:'Fehler'},
+es:{title:'Baliza DATV',conn:'conectando…',online:'conectado',offline:'no disponible',intx:'baliza en el aire',s_status:'Estado',mode:'Modo',up:'Encendido desde hace',
+s_tx:'Transmisión',freq:'Frecuencia (MHz)',fec:'FEC (DVB-S2 QPSK, 333 kS)',level:'Nivel (dB, 0 = máximo)',dc:'Corrección DC I / Q',
+lvl_note:'Nivel en dB teóricos respecto al máximo del modulador (−6 dB = mitad de amplitud), de −40 a 0. La potencia real en dBm depende de la placa y debe calibrarse con una medida.',
+band1:'Banda permitida',band2:'MHz: use solo las frecuencias autorizadas por su licencia.',
+s_cycle:'Ciclo de la baliza',mono:'Carta de ajuste (s, 0 = omitida)',monosrc:'Carta de ajuste a transmitir',o_std:'estándar',o_video:'vídeo personalizado',o_image:'imagen personalizada',
+cam:'Cámara en directo (s, 0 = omitida)',cammode:'Cámara',o_pip:'PiP sobre la carta',o_full:'pantalla completa',pipbg:'Fondo del PiP',o_bars:'barras estándar',
+pause:'Pausa sin TX (s)',wait:'Espera al encender (s)',
+cycle_note:'Solo carta de ajuste: cámara 0 s. Solo cámara: carta 0 s. La cámara y las imágenes personalizadas se envían en H.264 320x240; la carta estándar y los vídeos personalizados tal como se prepararon (H.265 640x360).',
+ovl:'Indicativo y frecuencia sobreimpresos (cámara, PiP, imagen)',auto:'Arranque automático al encender (AUTO TX)',
+s_wifi:'Wi-Fi de configuración',appass:'Nueva contraseña (8–23 caracteres, vacío = sin cambios)',wifi_note:'El nombre de la red es INDICATIVO-BEACON. Los cambios se aplican al próximo encendido del punto de acceso.',
+b_apply:'Aplicar',b_save:'Aplicar y guardar',b_def:'Valores por defecto',b_reload:'Recargar',b_start:'INICIAR BALIZA',
+tx_note:'Durante la transmisión la radio Wi-Fi funciona como modulador DATV y esta página no es accesible. Para detener la baliza pulse el botón BOOT de la placa (o una tecla en el puerto serie).',
+s_media:'Cartas de ajuste',m_std:'Estándar',m_bg:'Fondo PiP',m_vid:'Vídeo pers.',m_img:'Imagen pers.',
+media_note:'La carta estándar y el fondo del PiP están protegidos: solo se pueden complementar con otros personalizados.',
+s_img:'Imagen personalizada (desde el móvil o el PC)',b_imgup:'Subir imagen',b_imgdel:'Borrar imagen',
+img_note:'La imagen se recorta a 4:3 y se reduce a 320x240 aquí en el navegador; luego se transmite en H.264 como carta fija o como fondo del PiP.',
+s_vid:'Vídeo personalizado (preparado en el PC)',b_esup:'Subir vídeo',b_esdel:'Borrar vídeo',
+vid_note:'Archivo <b>.bin</b> creado con <code>tools/make_es.py --video mi.mp4</code> (o <code>--image</code>): ver docs/MONOSCOPIO.md. Máximo {max} MB.',
+applied:'Valores aplicados (aún no guardados).',errors:'Valores no válidos',confirm_start:'¿Iniciar la baliza con la configuración aplicada? El Wi-Fi se apagará.',
+preview:'Vista previa lista',uploading:'Subiendo…',upload_fail:'Subida interrumpida',confirm_erase:'¿Borrar el archivo personalizado? El estándar se mantiene.',
+saved:'Configuración guardada.',nvs_err:'Error de escritura en memoria.',defaults:'Valores por defecto (aún no guardados).',
+starting:'Baliza arrancando: el Wi-Fi se apaga. Pulse BOOT para detenerla.',loaded:'Subido',erased:'Archivo personalizado borrado.',erase_fail:'No se pudo borrar.',
+mode_cfg:'configuración',mode_tx:'baliza en el aire',mode_test:'transmisión de prueba',absent:'no presente',error:'Error'},
+fr:{title:'Balise DATV',conn:'connexion…',online:'connecté',offline:'inaccessible',intx:'balise en émission',s_status:'État',mode:'Mode',up:'Allumée depuis',
+s_tx:'Émission',freq:'Fréquence (MHz)',fec:'FEC (DVB-S2 QPSK, 333 kS)',level:'Niveau (dB, 0 = maximum)',dc:'Correction DC I / Q',
+lvl_note:'Niveau en dB théoriques par rapport au maximum du modulateur (−6 dB = demi-amplitude), de −40 à 0. La puissance réelle en dBm dépend de la carte et doit être étalonnée par une mesure.',
+band1:'Bande autorisée',band2:'MHz : n\'utilisez que les fréquences permises par votre licence.',
+s_cycle:'Cycle de la balise',mono:'Mire (s, 0 = sautée)',monosrc:'Mire à émettre',o_std:'standard',o_video:'vidéo personnalisée',o_image:'image personnalisée',
+cam:'Caméra en direct (s, 0 = sautée)',cammode:'Caméra',o_pip:'PiP sur la mire',o_full:'plein écran',pipbg:'Fond du PiP',o_bars:'barres standard',
+pause:'Pause sans émission (s)',wait:'Attente à la mise sous tension (s)',
+cycle_note:'Mire seule : caméra 0 s. Caméra seule : mire 0 s. La caméra et les images personnalisées partent en H.264 320x240, la mire standard et les vidéos personnalisées telles que préparées (H.265 640x360).',
+ovl:'Indicatif et fréquence en incrustation (caméra, PiP, image)',auto:'Démarrage automatique à la mise sous tension (AUTO TX)',
+s_wifi:'Wi-Fi de configuration',appass:'Nouveau mot de passe (8–23 caractères, vide = inchangé)',wifi_note:'Le nom du réseau est INDICATIF-BEACON. Les changements s\'appliquent au prochain démarrage du point d\'accès.',
+b_apply:'Appliquer',b_save:'Appliquer et enregistrer',b_def:'Valeurs par défaut',b_reload:'Recharger',b_start:'DÉMARRER LA BALISE',
+tx_note:'Pendant l\'émission, la radio Wi-Fi sert de modulateur DATV et cette page n\'est pas accessible. Pour arrêter la balise, appuyez sur le bouton BOOT de la carte (ou une touche sur le port série).',
+s_media:'Mires',m_std:'Standard',m_bg:'Fond PiP',m_vid:'Vidéo perso.',m_img:'Image perso.',
+media_note:'La mire standard et le fond du PiP sont protégés : on peut seulement leur ajouter des fichiers personnalisés.',
+s_img:'Image personnalisée (depuis le téléphone ou le PC)',b_imgup:'Envoyer l\'image',b_imgdel:'Supprimer l\'image',
+img_note:'L\'image est recadrée en 4:3 et réduite à 320x240 ici dans le navigateur, puis émise en H.264 comme mire fixe ou comme fond du PiP.',
+s_vid:'Vidéo personnalisée (préparée sur le PC)',b_esup:'Envoyer la vidéo',b_esdel:'Supprimer la vidéo',
+vid_note:'Fichier <b>.bin</b> créé avec <code>tools/make_es.py --video ma.mp4</code> (ou <code>--image</code>) : voir docs/MONOSCOPIO.md. Maximum {max} Mo.',
+applied:'Valeurs appliquées (pas encore enregistrées).',errors:'Valeurs non valides',confirm_start:'Démarrer la balise avec la configuration appliquée ? Le Wi-Fi va s\'éteindre.',
+preview:'Aperçu prêt',uploading:'Envoi en cours…',upload_fail:'Envoi interrompu',confirm_erase:'Supprimer le fichier personnalisé ? Le standard reste.',
+saved:'Configuration enregistrée.',nvs_err:'Erreur d\'écriture en mémoire.',defaults:'Valeurs par défaut (pas encore enregistrées).',
+starting:'Démarrage de la balise : le Wi-Fi s\'éteint. Appuyez sur BOOT pour l\'arrêter.',loaded:'Envoyé',erased:'Fichier personnalisé supprimé.',erase_fail:'Suppression impossible.',
+mode_cfg:'configuration',mode_tx:'balise en émission',mode_test:'émission d\'essai',absent:'absent',error:'Erreur'},
+ar:{title:'منارة DATV',conn:'جارٍ الاتصال…',online:'متصل',offline:'غير متاح',intx:'المنارة تبث',s_status:'الحالة',mode:'الوضع',up:'مدة التشغيل',
+s_tx:'الإرسال',freq:'التردد (ميغاهرتز)',fec:'FEC (DVB-S2 QPSK، 333 kS)',level:'المستوى (dB، 0 = الحد الأقصى)',dc:'تصحيح DC للمكونين I / Q',
+lvl_note:'المستوى بوحدات dB نظرية بالنسبة إلى الحد الأقصى للمُعدِّل (−6 dB = نصف السعة)، من −40 إلى 0. القدرة الفعلية بوحدة dBm تعتمد على اللوحة ويجب معايرتها بالقياس.',
+band1:'النطاق المسموح',band2:'ميغاهرتز: استخدم فقط الترددات المسموح بها في رخصتك.',
+s_cycle:'دورة المنارة',mono:'صورة الاختبار (ثانية، 0 = تخطٍّ)',monosrc:'صورة الاختبار المرسلة',o_std:'قياسية',o_video:'فيديو مخصص',o_image:'صورة مخصصة',
+cam:'الكاميرا المباشرة (ثانية، 0 = تخطٍّ)',cammode:'الكاميرا',o_pip:'صورة داخل صورة الاختبار (PiP)',o_full:'ملء الشاشة',pipbg:'خلفية PiP',o_bars:'الأشرطة القياسية',
+pause:'استراحة بدون إرسال (ثانية)',wait:'الانتظار عند التشغيل (ثانية)',
+cycle_note:'صورة الاختبار فقط: الكاميرا 0 ثانية. الكاميرا فقط: صورة الاختبار 0 ثانية. الكاميرا والصور المخصصة تُرسل بترميز H.264 بدقة 320x240، وصورة الاختبار القياسية والفيديوهات المخصصة كما أُعدّت (H.265 بدقة 640x360).',
+ovl:'إظهار نداء المحطة والتردد على الصورة (الكاميرا، PiP، الصورة)',auto:'بدء تلقائي عند التشغيل (AUTO TX)',
+s_wifi:'شبكة Wi-Fi للإعداد',appass:'كلمة مرور جديدة (8–23 حرفًا، فارغ = دون تغيير)',wifi_note:'اسم الشبكة هو نداء المحطة متبوعًا بـ -BEACON. تسري التغييرات عند التشغيل التالي لنقطة الوصول.',
+b_apply:'تطبيق',b_save:'تطبيق وحفظ',b_def:'القيم الافتراضية',b_reload:'إعادة التحميل',b_start:'تشغيل المنارة',
+tx_note:'أثناء الإرسال يعمل راديو Wi-Fi كمُعدِّل DATV ولا يمكن الوصول إلى هذه الصفحة. لإيقاف المنارة اضغط زر BOOT على اللوحة (أو أي مفتاح على المنفذ التسلسلي).',
+s_media:'صور الاختبار',m_std:'القياسية',m_bg:'خلفية PiP',m_vid:'فيديو مخصص',m_img:'صورة مخصصة',
+media_note:'صورة الاختبار القياسية وخلفية PiP محميتان: يمكن فقط إضافة ملفات مخصصة إلى جانبهما.',
+s_img:'صورة مخصصة (من الهاتف أو الحاسوب)',b_imgup:'رفع الصورة',b_imgdel:'حذف الصورة',
+img_note:'تُقص الصورة بنسبة 4:3 وتُصغَّر إلى 320x240 هنا في المتصفح، ثم تُرسل بترميز H.264 كصورة اختبار ثابتة أو كخلفية PiP.',
+s_vid:'فيديو مخصص (يُعدّ على الحاسوب)',b_esup:'رفع الفيديو',b_esdel:'حذف الفيديو',
+vid_note:'ملف <b>.bin</b> يُنشأ باستخدام <code>tools/make_es.py --video my.mp4</code> (أو <code>--image</code>): راجع docs/MONOSCOPIO.md. الحد الأقصى {max} ميغابايت.',
+applied:'تم تطبيق القيم (لم تُحفظ بعد).',errors:'قيم غير صالحة',confirm_start:'تشغيل المنارة بالإعداد المطبق؟ سيتم إيقاف Wi-Fi.',
+preview:'المعاينة جاهزة',uploading:'جارٍ الرفع…',upload_fail:'توقف الرفع',confirm_erase:'حذف الملف المخصص؟ يبقى الملف القياسي.',
+saved:'تم حفظ الإعداد.',nvs_err:'خطأ في الكتابة إلى الذاكرة.',defaults:'القيم الافتراضية (لم تُحفظ بعد).',
+starting:'المنارة تبدأ: سيتوقف Wi-Fi. اضغط BOOT لإيقافها.',loaded:'تم الرفع',erased:'تم حذف الملف المخصص.',erase_fail:'تعذّر الحذف.',
+mode_cfg:'الإعداد',mode_tx:'المنارة تبث',mode_test:'إرسال تجريبي',absent:'غير موجود',error:'خطأ'}};
+let L='it';
+function t(k){return(T[L]&&T[L][k])||T.it[k]||k}
+let esMax=3,lastStatus='conn',lastMedia=null,lastMode='';
+// messaggi del firmware (in italiano) tradotti nella lingua scelta
+const SRV=[['configurazione salvata','saved'],['errore NVS','nvs_err'],['valori predefiniti','defaults'],['beacon in partenza','starting'],
+ ['file personalizzato cancellato','erased'],['cancellazione non riuscita','erase_fail']];
+function srv(m){for(const[a,k]of SRV)if(m.startsWith(a))return t(k);if(m.startsWith('caricato: '))return t('loaded')+': '+m.slice(10);return m}
+const MODES={'configurazione':'mode_cfg','beacon in TX':'mode_tx','prova in TX':'mode_test'};
+function media(v){return v==='assente'?t('absent'):v}
+function setLang(l){L=T[l]?l:'en';try{localStorage.setItem('lang',L)}catch(e){}
+ document.documentElement.lang=L;document.documentElement.dir=L==='ar'?'rtl':'ltr';
+ document.querySelectorAll('[data-t]').forEach(e=>{const v=t(e.dataset.t);if(v.includes('<'))e.innerHTML=v.replace('{max}',esMax);else e.textContent=v});
+ document.querySelectorAll('#langs button').forEach(b=>b.classList.toggle('on',b.dataset.l===L));
+ st(lastStatus);if(lastMode)$('mode').textContent=MODES[lastMode]?t(MODES[lastMode]):lastMode;
+ if(lastMedia)for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=media(lastMedia[k]);
+ $('msg').textContent='';$('umsg').textContent=''}
+function st(k){lastStatus=k;$('st').textContent=t(k);$('st').className='st '+({online:'ok',offline:'bad',intx:'warn'}[k]||'')}
+for(const l of Object.keys(FLAGS)){const b=document.createElement('button');b.type='button';b.dataset.l=l;b.title=NAMES[l];b.setAttribute('aria-label',NAMES[l]);
+ b.innerHTML=FLAGS[l];b.onclick=()=>setLang(l);$('langs').appendChild(b)}
+// ---- stato e configurazione
+function msg(m,c){const e=$('msg');e.textContent=m;e.className=c||''}
 function fill(c){for(const k of['freq','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl}
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
-  $('fw').textContent=s.fw;$('mode').textContent=s.mode;$('band').textContent=s.fmin+'–'+s.fmax;
-  for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=s.media[k];$('esmax').textContent=(s.media.es_max/1048576).toFixed(0);
+  $('fw').textContent=s.fw;lastMode=s.mode;$('mode').textContent=MODES[s.mode]?t(MODES[s.mode]):s.mode;$('band').textContent=s.fmin+'–'+s.fmax;
+  lastMedia=s.media;for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=media(s.media[k]);
+  const mx=(s.media.es_max/1048576).toFixed(0);if(mx!=esMax){esMax=mx;setLang(L)}
   const u=s.uptime;$('up').textContent=Math.floor(u/3600)+' h '+Math.floor(u%3600/60)+' min';
-  $('st').textContent='collegato';$('st').className='st ok';
-  if(full)fill(s.cfg);
- }catch(e){$('st').textContent='non raggiungibile';$('st').className='st bad'}}
+  st('online');if(full)fill(s.cfg);
+ }catch(e){st('offline')}}
 function body(){const d=new URLSearchParams(new FormData($('f')));d.set('auto',$('auto').checked?'on':'off');d.set('ovl',$('ovl').checked?'on':'off');return d}
 async function post(u,b){const r=await fetch(u,{method:'POST',body:b});return r.json()}
 async function apply(){const j=await post('/api/set',body());$('appass').value='';fill(j.cfg);
- if(j.ok)msg('Valori applicati (non ancora salvati).','ok');else msg('Errori: '+j.errors.join('; '),'bad');return j.ok}
+ if(j.ok)msg(t('applied'),'ok');else msg(t('errors')+': '+j.errors.map(e=>e.split(':')[0]).join(', '),'bad');return j.ok}
 $('f').onsubmit=e=>{e.preventDefault();apply()};
-$('save').onclick=async()=>{if(await apply()){const j=await post('/api/save','');msg(j.msg,j.ok?'ok':'bad')}};
-$('def').onclick=async()=>{const j=await post('/api/defaults','');await status(true);msg(j.msg,'warn')};
+$('save').onclick=async()=>{if(await apply()){const j=await post('/api/save','');msg(srv(j.msg),j.ok?'ok':'bad')}};
+$('def').onclick=async()=>{const j=await post('/api/defaults','');await status(true);msg(srv(j.msg),'warn')};
 $('reload').onclick=()=>status(true).then(()=>msg('',''));
-$('start').onclick=async()=>{if(!confirm('Avviare il beacon con la configurazione applicata? Il Wi-Fi si spegnerà.'))return;
- if(!await apply())return;const j=await post('/api/start','');msg(j.msg,'warn');$('st').textContent='beacon in TX';$('st').className='st warn'};
+$('start').onclick=async()=>{if(!confirm(t('confirm_start')))return;
+ if(!await apply())return;const j=await post('/api/start','');msg(srv(j.msg),'warn');st('intx')};
 // ---- monoscopi personalizzati
-function umsg(t,c){const m=$('umsg');m.textContent=t;m.className=c||''}
-const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function umsg(m,c){const e=$('umsg');e.textContent=m;e.className=c||''}
+const CRC=(()=>{const tb=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;tb[n]=c>>>0}return tb})();
 function crc32(a){let c=0xFFFFFFFF;for(let i=0;i<a.length;i++)c=CRC[(c^a[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
 let imgBlob=null;
 $('imgfile').onchange=async()=>{const f=$('imgfile').files[0];if(!f)return;
@@ -148,16 +319,19 @@ $('imgfile').onchange=async()=>{const f=$('imgfile').files[0];if(!f)return;
  dv.setUint16(8,320,true);dv.setUint16(10,240,true);dv.setUint32(12,1,true);dv.setUint32(16,n,true);
  dv.setUint32(20,crc32(buf.subarray(64)),true);
  const lab=f.name.replace(/\.[^.]*$/,'').replace(/[^ -~]/g,'_').slice(0,35);for(let k=0;k<lab.length;k++)buf[24+k]=lab.charCodeAt(k);
- imgBlob=buf;$('imgup').disabled=false;umsg('Anteprima pronta: '+lab,'')};
-async function upload(kind,data,btn){btn.disabled=true;umsg('Caricamento in corso…','warn');
- try{const r=await fetch('/api/upload?kind='+kind,{method:'POST',body:data});const j=await r.json();umsg(j.msg,j.ok?'ok':'bad')}
- catch(e){umsg('Caricamento interrotto','bad')}btn.disabled=false;status(false)}
+ imgBlob=buf;$('imgup').disabled=false;umsg(t('preview')+': '+lab,'')};
+async function upload(kind,data,btn){btn.disabled=true;umsg(t('uploading'),'warn');
+ try{const r=await fetch('/api/upload?kind='+kind,{method:'POST',body:data});const j=await r.json();umsg(j.ok?srv(j.msg):t('error')+': '+j.msg,j.ok?'ok':'bad')}
+ catch(e){umsg(t('upload_fail'),'bad')}btn.disabled=false;status(false)}
 $('imgup').onclick=()=>imgBlob&&upload('image',imgBlob,$('imgup'));
 $('esfile').onchange=()=>{$('esup').disabled=!$('esfile').files[0]};
 $('esup').onclick=()=>{const f=$('esfile').files[0];if(f)upload('video',f,$('esup'))};
-async function erase(kind){if(!confirm('Cancellare il file personalizzato? Quello standard resta.'))return;
- const j=await post('/api/erase?kind='+kind,'');umsg(j.msg,j.ok?'ok':'bad');status(false)}
+async function erase(kind){if(!confirm(t('confirm_erase')))return;
+ const j=await post('/api/erase?kind='+kind,'');umsg(srv(j.msg),j.ok?'ok':'bad');status(false)}
 $('imgdel').onclick=()=>erase('image');$('esdel').onclick=()=>erase('video');
+// lingua: ?lang=xx, poi quella scelta l'ultima volta, poi quella del browser, altrimenti inglese
+let saved=null;try{saved=localStorage.getItem('lang')}catch(e){}
+setLang(new URLSearchParams(location.search).get('lang')||saved||(navigator.language||'en').slice(0,2).toLowerCase());
 status(true);setInterval(()=>status(false),5000);
 </script>
 </body>
