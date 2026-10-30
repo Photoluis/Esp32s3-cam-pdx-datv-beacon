@@ -6,7 +6,7 @@ minore, melodia di theremin con glissati e vibrato, vento e rintocchi di campana
 19,2 s: il loop del monoscopio (480 immagini a 25 fps, 900 frame AAC) riparte senza stacchi.
 
 Uso:
-  python make_halloween.py -o out/halloween.mp4 [--callsign IZ7PDX/B]      (scrive anche out/halloween.wav)
+  python make_halloween.py -o out/halloween.mp4 [--callsign IL_TUO_QRZ]      (scrive anche out/halloween.wav)
   python make_es.py --video out/halloween.mp4 --audio out/halloween.wav --audio-kbps 48 --no-text --no-band -o out/halloween_es.bin
   python upload_media.py COM3 VIDEO out/halloween_es.bin      (oppure dalla pagina web)
 """
@@ -150,7 +150,8 @@ def frame(bg, n, call):
     text_outline(d, (W // 2, 86), "DATV BEACON", F_SUB, (255, 230, 180))
     a = 0.5 + 0.5 * math.sin(2 * w)                       # scritta che "respira"
     text_outline(d, (W // 2, 214), "HAPPY HALLOWEEN", F_TITLE, lerp((200, 70, 10), (255, 170, 40), a))
-    text_outline(d, (W // 2, 248), call, F_SUB, (240, 240, 255))
+    if call:
+        text_outline(d, (W // 2, 248), call, F_SUB, (240, 240, 255))
     d.rectangle([0, H - 22, W, H], fill=(10, 4, 14))
     d.text((8, H - 19), "DVB-S2 QPSK  SR 333 kS  H.265", font=F_SMALL, fill=(255, 150, 40))
     d.text((W - 8, H - 19), f"FRAME {n + 1:03d}/{N}", font=F_SMALL, fill=(200, 200, 220), anchor="ra")
@@ -241,7 +242,7 @@ def write_wav(path, x):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--callsign", default="IZ7PDX/B")
+    ap.add_argument("--callsign", default="", help="nominativo sotto HAPPY HALLOWEEN (predefinito: nessuno)")
     ap.add_argument("-o", "--output", default="out/halloween.mp4")
     ap.add_argument("--png", help="salva anche un fotogramma come immagine")
     a = ap.parse_args()

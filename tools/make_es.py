@@ -64,7 +64,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sr", type=int, default=333000)
     ap.add_argument("--rate-fec", default="1/2", help="FEC per il calcolo del bitrate (il più robusto che si userà)")
-    ap.add_argument("--callsign", default="IZ7PDX/B")
+    ap.add_argument("--callsign", default="ESP32-S3-CAM_PDX", help="prima riga del monoscopio (il monoscopio standard pubblico porta il nome del progetto; il nominativo di chi trasmette arriva dalla SDT)")
     ap.add_argument("--label-freq", default="", help="frequenza scritta nell'immagine (predefinito: nessuna; la frequenza finale arriva dalla SDT e dai modi dal vivo)")
     ap.add_argument("--image", help="immagine fissa (ritagliata/riquadrata a 640x360)")
     ap.add_argument("--video", help="video (ripetuto se più corto, tagliato se più lungo)")

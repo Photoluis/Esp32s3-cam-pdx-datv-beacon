@@ -29,10 +29,10 @@ __pycache__/
 Thumbs.db
 
 # video e immagini personali (non nel repository)
-media/
+/media/
 
 # prova iniziale della scheda (PlatformIO / Arduino), solo locale
-hwtest/
+/hwtest/
 
 # file della release (allegati su GitHub, non nel repository)
-release/
+/release/

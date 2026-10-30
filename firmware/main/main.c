@@ -151,6 +151,7 @@ static void run_beacon(void)
     pdx_cfg_unlock();
     pdx_web_set_mode("beacon in TX");
     pdx_web_stop();
+    if (!strcmp(snap.callsign, "NOCALL")) printf("ATTENZIONE nominativo non impostato (NOCALL)\n");
     printf("BEACON avvio (un tasto o BOOT per fermare)\n");
     fflush(stdout);
     uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));

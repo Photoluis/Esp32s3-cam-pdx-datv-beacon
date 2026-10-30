@@ -32,8 +32,10 @@ multiplexing and DVB-S2 coding all run on the board.
 python -m pip install esptool
 python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
 ```
-Then connect to the Wi-Fi network `IZ7PDX-BEACON` (password `beacon13cm`), open http://192.168.4.1 and set **your own
-callsign**, frequency and cycle. Change the Wi-Fi password from the menu.
+Then connect to the Wi-Fi network `NOCALL-BEACON` (password `beacon13cm`), open http://192.168.4.1 and set **your own
+callsign** (the page warns until you do), frequency and cycle, then *Apply and save*. Change the Wi-Fi password from the
+menu. The standard test card shows the project name; your callsign is sent in the DVB service name and in the live
+modes overlay.
 
 **Known limitations:** about 1 in 100 H.264 frames cannot be decoded in PiP / still-image modes (software encoder; the TS
 is intact); only 333 kS tested; output power in dBm not yet calibrated.
@@ -66,8 +68,10 @@ dalla pagina web, PDF completo del progetto; presentazioni in 11 lingue in `docs
 python -m pip install esptool
 python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
 ```
-Poi collegarsi alla rete `IZ7PDX-BEACON` (password `beacon13cm`), aprire http://192.168.4.1 e impostare **il proprio
-nominativo**, la frequenza e il ciclo; cambiare la password del Wi-Fi dal menu.
+Poi collegarsi alla rete `NOCALL-BEACON` (password `beacon13cm`), aprire http://192.168.4.1 e impostare **il proprio
+nominativo** (la pagina lo ricorda finché non è impostato), la frequenza e il ciclo, poi *Applica e salva*; cambiare la
+password del Wi-Fi dal menu. Il monoscopio standard mostra il nome del progetto; il nominativo va in onda nel nome del
+servizio DVB e nella sovrimpressione dei modi dal vivo.
 
 **Limiti noti:** circa 1 fotogramma H.264 su 100 non decodificabile in PiP e immagine fissa (encoder software; il TS è
 integro); collaudato solo a 333 kS; potenza in dBm non ancora tarata.
@@ -79,8 +83,8 @@ iz7pdx@gmail.com. 73 de IZ7PDX
 ## SHA-256
 
 ```
-ba0ebd2ade276ecae00a8e170d3500ffdc349af971f4bd68b57b23e39dc8142f  ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
-f7981a5529b3161a558b93284baf4c83af3286ab89673e8bd92ab459145b2216  ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_app_only.bin
-429580ad8af1134e0beb808aaa7489019c55d1c3d66cb3a0b54270056be51039  halloween_es.bin
-2b72bcc8b7a89b2c381c9633ab070bfa46c9d988eb88ef82910dfe275b0c31f5  ESP32-S3-CAM_PDX_DATV_Beacon.pdf
+7ba197d1583a6f815483252606f8e5828b803e332e203e3bc4e78b231d9235a0  ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
+ce0dd445381a1c5ebbf3486bab6d34358d273b3152fce72d44d1278b7fb5233d  ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_app_only.bin
+b5010765cd502150a2bc11f02ce03acf512ce7226b0c4e99256b747a9f5264e2  halloween_es.bin
+781f4fa4ee186844b190fde2d44ed0764851b688346df2fa363af170e6403ab7  ESP32-S3-CAM_PDX_DATV_Beacon.pdf
 ```

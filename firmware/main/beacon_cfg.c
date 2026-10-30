@@ -44,7 +44,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
     /* 2375 MHz: segmento DATV dei 13 cm, lontano dai multipli dei clock di quarzo (40 MHz) e di flash/PSRAM (80 MHz) */
     *c = (pdx_cfg_t){
         .version = PDX_CFG_VERSION, .auto_tx = 0, .freq_khz = 2375000, .amp = 200, .dci = 0, .dcq = 0,
-        .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "IZ7PDX", .ap_pass = "beacon13cm",
+        .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "NOCALL", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
     };
@@ -126,6 +126,8 @@ bool pdx_cfg_save(const pdx_cfg_t *c)
 
 void pdx_cfg_print(const pdx_cfg_t *c)
 {
+    if (!strcmp(c->callsign, "NOCALL"))
+        printf("ATTENZIONE nominativo non impostato (NOCALL): SET call <QRZ>, poi SAVE, prima di trasmettere\n");
     static const char *const src[] = {"STD", "VIDEO", "IMAGE", "LIVE"};
     bool inv;
     const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
