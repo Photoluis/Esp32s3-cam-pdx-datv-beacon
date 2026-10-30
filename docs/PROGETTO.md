@@ -20,7 +20,7 @@ in aria, un filtro e se serve un amplificatore).
 | Video | monoscopio H.265 640x360 25 fps precodificato; **camera dal vivo H.264 320x240** (5–7 fps, 9 fps in PiP) |
 | Audio | AAC mono 32 kbit/s (tono di identificazione da 1 kHz) |
 | Modi | monoscopio standard, video o immagine personalizzati, camera a pieno schermo, camera in **PiP** sul monoscopio |
-| Controllo | pagina web dal telefono (access point a TX ferma) in 6 lingue, seriale, partenza automatica all'accensione |
+| Controllo | pagina web dal telefono (access point a TX ferma) in 11 lingue, seriale, partenza automatica all'accensione |
 | Qualità in ricezione | **MER 23–27 dB** con Portsdown 4 + Minitiouner (prove indoor a 4 m) |
 | Hardware | ESP32-S3 N16R8 con camera OV3660 (diymore ESP32-S3-CAM, disposizione Freenove) |
 
@@ -154,8 +154,9 @@ modulatore scrive centinaia di milioni di campioni con al massimo pochi campioni
   o dal PC; un **video** si prepara sul PC con `tools/make_es.py` e si carica dalla pagina o dalla porta seriale. Il
   monoscopio standard e lo sfondo standard sono protetti: il firmware non permette di sovrascriverli. In aria l'immagine
   caricata da un iPhone è stata ricevuta con **MER 24+ dB**.
-- **Livello di uscita in dB** (0 dB = massimo del modulatore), FEC selezionabile dal menu, pagina web in **italiano,
-  inglese, tedesco, spagnolo, francese e arabo**.
+- **Livello di uscita in dB** (0 dB = massimo del modulatore), FEC selezionabile dal menu, pagina web in **11 lingue**
+  scelte con la bandiera: italiano, inglese, tedesco, spagnolo, francese, portoghese, olandese, polacco, greco,
+  giapponese e arabo (con scrittura da destra a sinistra).
 
 ### 6. La prova di linearità
 

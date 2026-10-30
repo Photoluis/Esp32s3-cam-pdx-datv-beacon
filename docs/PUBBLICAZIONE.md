@@ -63,5 +63,4 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
   pagina.
 - **v1.2:** versione per il traliccio: filtro passa-banda, amplificatore, contenitore stagno, antenna definitiva;
   stessa prova di linearità con l'amplificatore.
-- Raccolta delle segnalazioni, altre lingue nella pagina (proposte: portoghese, olandese, polacco, greco, giapponese),
-  symbol rate più alti.
+- Raccolta delle segnalazioni, altre lingue nella pagina su richiesta della comunità (oggi 11), symbol rate più alti.

@@ -20,7 +20,7 @@ ESP32-S3: il trasmettitore Wi-Fi del chip viene usato come modulatore I/Q, mentr
 | Beacon autonomo (configurazione in NVS, partenza automatica, ciclo) | collaudato |
 | Configurazione da web (access point a TX ferma) e da seriale | collaudato |
 | Camera dal vivo (H.264 320x240), PiP sul monoscopio, monoscopio personalizzato (immagine o video) | collaudato: MER 24–25 dB, 0 fotogrammi persi |
-| Pagina web in 6 lingue (IT, EN, DE, ES, FR, AR), livello in dB, FEC dal menu | collaudato |
+| Pagina web in 11 lingue (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR), livello in dB, FEC dal menu | collaudato (11 lingue: verificate sul PC) |
 
 ## Documentazione
 
