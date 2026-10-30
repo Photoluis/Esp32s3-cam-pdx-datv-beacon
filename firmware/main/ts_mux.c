@@ -25,6 +25,10 @@ static uint32_t crc32_mpeg(const uint8_t *p, uint32_t n)
 }
 
 static uint64_t now_90k(const pdx_mux_t *m) { return (uint64_t)((double)m->n * 1504.0 * 90000.0 / m->rate); }
+uint64_t pdx_mux_now_90k(const pdx_mux_t *m) { return now_90k(m); }
+bool pdx_mux_vq_space(const pdx_mux_t *m) { return m->vq_w - m->vq_r < PDX_VQ_LEN; }
+pdx_vq_entry_t *pdx_mux_vq_slot(pdx_mux_t *m) { return &m->vq[m->vq_w % PDX_VQ_LEN]; }
+void pdx_mux_vq_commit(pdx_mux_t *m) { m->vq_w++; }
 
 static void ts_header(uint8_t *p, uint16_t pid, bool pusi, uint8_t afc, uint8_t *cc)
 {
@@ -60,7 +64,7 @@ static void make_pmt(pdx_mux_t *m, uint8_t *p)
 {
     const uint8_t s[] = {0x02, 0xB0, 23, 0x00, 0x01, 0xC1, 0x00, 0x00,
                          0xE0 | (PID_PCR >> 8), PID_PCR & 0xFF, 0xF0, 0x00,      /* PCR_PID, nessun descrittore */
-                         (uint8_t)m->es->vtype, 0xE0 | (PID_V >> 8), PID_V & 0xFF, 0xF0, 0x00,
+                         m->vtype, 0xE0 | (PID_V >> 8), PID_V & 0xFF, 0xF0, 0x00,
                          (uint8_t)m->es->atype, 0xE0 | (PID_A >> 8), PID_A & 0xFF, 0xF0, 0x00};
     psi_packet(p, PID_PMT, &m->cc[1], s, sizeof(s));
 }
@@ -76,7 +80,7 @@ static void make_sdt(pdx_mux_t *m, uint8_t *p)
     s[k++] = 0x00; s[k++] = 0x01; s[k++] = 0xFF;            /* original_network_id 1 */
     s[k++] = 0x00; s[k++] = 0x01; s[k++] = 0xFC;            /* servizio 1, niente EIT */
     s[k++] = (uint8_t)(0x80 | ((dlen + 2) >> 8)); s[k++] = (uint8_t)(dlen + 2);   /* running, non cifrato */
-    s[k++] = 0x48; s[k++] = dlen; s[k++] = 0x1F;           /* servizio TV digitale HEVC */
+    s[k++] = 0x48; s[k++] = dlen; s[k++] = m->vtype == 0x24 ? 0x1F : 0x16;   /* TV digitale HEVC / AVC */
     s[k++] = lp; memcpy(s + k, m->provider, lp); k += lp;
     s[k++] = ls; memcpy(s + k, m->service, ls); k += ls;
     const uint32_t sl = k - 3 + 4;
@@ -119,13 +123,13 @@ static uint64_t unit_pts(const pdx_mux_t *m, const pdx_es_cursor_t *c, const pdx
     return m->pts_base + (uint64_t)c->loop * m->es->loop_ticks + u->pts;
 }
 
-static void start_pes(pdx_mux_t *m, pdx_es_cursor_t *c, const pdx_es_unit_t *u, bool video)
+static void start_pes_raw(pdx_mux_t *m, pdx_es_cursor_t *c, uint64_t pts, const uint8_t *data, uint32_t len, bool video)
 {
-    const uint64_t pts = unit_pts(m, c, u) & 0x1FFFFFFFFull;
+    pts &= 0x1FFFFFFFFull;
     uint8_t *h = c->ph;
     h[0] = 0; h[1] = 0; h[2] = 1;
     h[3] = video ? 0xE0 : 0xC0;
-    const uint32_t plen = video ? 0 : u->len + 8;         /* video: lunghezza 0 (non limitata) */
+    const uint32_t plen = video ? 0 : len + 8;            /* video: lunghezza 0 (non limitata) */
     h[4] = (uint8_t)(plen >> 8);
     h[5] = (uint8_t)plen;
     h[6] = video ? 0x84 : 0x80;                            /* '10', data_alignment per il video */
@@ -138,10 +142,15 @@ static void start_pes(pdx_mux_t *m, pdx_es_cursor_t *c, const pdx_es_unit_t *u, 
     h[13] = (uint8_t)(0x01 | ((pts << 1) & 0xFE));
     c->ph_len = 14;
     c->ph_pos = 0;
-    c->pl = c->data + m->es->data_off + u->off;
-    c->pl_rem = u->len;
+    c->pl = data;
+    c->pl_rem = len;
     c->active = true;
-    if (pts < now_90k(m)) m->late++;
+    if (pts < (now_90k(m) & 0x1FFFFFFFFull)) m->late++;
+}
+
+static void start_pes(pdx_mux_t *m, pdx_es_cursor_t *c, const pdx_es_unit_t *u, bool video)
+{
+    start_pes_raw(m, c, unit_pts(m, c, u), c->data + m->es->data_off + u->off, u->len, video);
     c->next++;
 }
 
@@ -178,6 +187,25 @@ static bool try_stream(pdx_mux_t *m, pdx_es_cursor_t *c, uint8_t kind, uint16_t 
     return true;
 }
 
+/* video dalla coda: un fotogramma alla volta, inviato quando il suo PTS è entro LEAD_90K */
+static bool try_queue(pdx_mux_t *m, uint8_t *p)
+{
+    pdx_es_cursor_t *c = &m->v;
+    if (!c->active) {
+        if (m->vq_r == m->vq_w) return false;
+        const pdx_vq_entry_t *e = &m->vq[m->vq_r % PDX_VQ_LEN];
+        if (e->pts > now_90k(m) + LEAD_90K) return false;
+        start_pes_raw(m, c, e->pts, e->buf, e->len, true);
+        m->vq_sending = true;
+    }
+    pes_packet(m, c, PID_V, &m->cc[3], p);
+    if (!c->active && m->vq_sending) {                     /* PES finito: il posto torna libero */
+        m->vq_sending = false;
+        m->vq_r++;
+    }
+    return true;
+}
+
 void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
 {
     const double pkt_per_s = m->rate / 1504.0;
@@ -196,7 +224,9 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
         m->next_pcr = m->n + (uint64_t)(0.04 * pkt_per_s);
     } else if (try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt)) {
         m->stats_audio++;
-    } else if (try_stream(m, &m->v, 0, PID_V, &m->cc[3], pkt)) {
+    } else if (!m->vqueue && try_stream(m, &m->v, 0, PID_V, &m->cc[3], pkt)) {
+        m->stats_video++;
+    } else if (m->vqueue && try_queue(m, pkt)) {
         m->stats_video++;
     } else {                                               /* pacchetto nullo */
         pkt[0] = 0x47; pkt[1] = 0x1F; pkt[2] = 0xFF; pkt[3] = 0x10;
@@ -206,7 +236,8 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
     m->n++;
 }
 
-const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider)
+const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider,
+                         bool vqueue)
 {
     memset(m, 0, sizeof(*m));
     const pdx_es_header_t *h = (const pdx_es_header_t *)es_file;
@@ -214,6 +245,8 @@ const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, cons
     if (!h->nunits || !h->loop_ticks) return "file ES vuoto";
     m->es = h;
     m->rate = rate;
+    m->vqueue = vqueue;
+    m->vtype = vqueue ? 0x1B : (uint8_t)h->vtype;
     m->pts_base = DELAY_90K;
     strncpy(m->service, service, sizeof(m->service) - 1);
     strncpy(m->provider, provider, sizeof(m->provider) - 1);

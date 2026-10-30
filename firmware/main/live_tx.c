@@ -14,6 +14,8 @@
 #include "freertos/task.h"
 #include "sym_player.h"
 #include "ts_mux.h"
+#include "cam_live.h"
+#include "overlay.h"
 
 #define ES_MAP_SIZE 0x200000u
 
@@ -28,7 +30,51 @@ typedef struct {
     uint8_t carry_byte, carry_n;         /* simboli che non riempivano un byte alla fine del frame precedente */
     volatile bool run, done;
     uint32_t frames, enc_max_us, wait_us;
+    /* modo camera */
+    const pdx_live_cfg_t *cfg;
+    uint8_t *vbuf[PDX_VQ_LEN];
+    uint32_t cam_frames, cam_dropped, cam_enc_max_us, cam_enc_sum_us, cam_bytes;
+    const char *cam_err;
 } live_t;
+
+#define VBUF_CAP (64u * 1024u)
+#define CAM_DELAY_90K 90000u             /* PTS di un fotogramma = tempo del multiplexer + 1 s */
+
+static void cam_overlay(uint8_t *yuyv, int w, int h, void *ctx)
+{
+    live_t *L = ctx;
+    char s[48];
+    const uint32_t t = (uint32_t)(pdx_mux_now_90k(&L->mux) / 90000u);
+    pdx_ovl_text(yuyv, w, h, 6, 4, L->cfg->service, 2);
+    snprintf(s, sizeof(s), "%.3f MHz  DVB-S2 %s", L->cfg->freq_khz / 1000.0, L->cfg->fec);
+    pdx_ovl_text(yuyv, w, h, 6, 40, s, 1);
+    snprintf(s, sizeof(s), "CAM %05u  T %02u:%02u", (unsigned)L->cam_frames, (unsigned)(t / 60u), (unsigned)(t % 60u));
+    pdx_ovl_text(yuyv, w, h, 6, h - 20, s, 1);
+    /* barra che avanza di un passo per fotogramma: un fotogramma perso si vede come un salto */
+    const int x = 6 + (int)((L->cam_frames * 12u) % (unsigned)(w - 24));
+    pdx_ovl_box(yuyv, w, h, 0, h - 26, w, 4, 16, 128, 128);
+    pdx_ovl_box(yuyv, w, h, x, h - 26, 12, 4, 210, 16, 146);
+}
+
+/* un fotogramma della camera nella coda del multiplexer; false se non c'era posto o è fallito */
+static bool camera_step(live_t *L)
+{
+    if (!pdx_mux_vq_space(&L->mux)) return false;
+    pdx_vq_entry_t *e = pdx_mux_vq_slot(&L->mux);
+    e->buf = L->vbuf[L->mux.vq_w % PDX_VQ_LEN];
+    bool key = false;
+    uint32_t tc = 0, te = 0;
+    const uint32_t len = pdx_cam_live_frame(e->buf, VBUF_CAP, cam_overlay, L, &key, &tc, &te);
+    if (!len) { L->cam_dropped++; return false; }
+    e->len = len;
+    e->pts = pdx_mux_now_90k(&L->mux) + CAM_DELAY_90K;
+    pdx_mux_vq_commit(&L->mux);
+    L->cam_frames++;
+    L->cam_bytes += len;
+    L->cam_enc_sum_us += te;
+    if (te > L->cam_enc_max_us) L->cam_enc_max_us = te;
+    return true;
+}
 
 static const void *es_map;
 static esp_partition_mmap_handle_t es_handle;
@@ -115,9 +161,21 @@ static bool produce_frame(live_t *L)
 static void producer(void *arg)
 {
     live_t *L = arg;
-    while (L->run && produce_frame(L)) {}
+    if (!L->cfg->camera) {
+        while (L->run && produce_frame(L)) {}
+    } else {
+        /* camera e encoder inizializzati qui: interrupt e task della camera sul core 1 */
+        L->cam_err = pdx_cam_live_init(L->cfg->cam_fps, L->cfg->cam_kbps);
+        const uint32_t need = L->s2.nsym / 4u + 2u;
+        while (L->run && !L->cam_err) {
+            /* prima il buffer dei simboli pieno (circa 0,4 s), poi un fotogramma (circa 150 ms) */
+            while (L->run && L->rb->size - (L->rb->w - L->rb->r) >= need) produce_frame(L);
+            if (!L->run) break;
+            if (!camera_step(L)) esp_rom_delay_us(500);
+        }
+    }
     L->done = true;
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 uint32_t pdx_live_play(const pdx_live_cfg_t *c, uint32_t ms, pdx_rf_abort_fn abort_fn, const char **why)
@@ -130,19 +188,30 @@ uint32_t pdx_live_play(const pdx_live_cfg_t *c, uint32_t ms, pdx_rf_abort_fn abo
     const char *e = pdx_s2_init(&L->s2, c->fec, c->shortf, c->pilots);
     if (e) { *why = e; heap_caps_free(L); return 0; }
     const double rate = pdx_s2_ts_bitrate(&L->s2, c->sr);
-    e = pdx_mux_init(&L->mux, es, rate, c->service, c->provider);
+    e = pdx_mux_init(&L->mux, es, rate, c->service, c->provider, c->camera);
+    L->cfg = c;
     L->field = heap_caps_malloc(L->s2.dfl / 8u, MALLOC_CAP_SPIRAM);
     L->tmp = heap_caps_calloc(1, L->s2.nsym / 4u + 2u, MALLOC_CAP_SPIRAM);
+    bool vb_ok = true;
+    for (int i = 0; c->camera && i < PDX_VQ_LEN; i++)
+        vb_ok &= (L->vbuf[i] = heap_caps_malloc(VBUF_CAP, MALLOC_CAP_SPIRAM)) != NULL;
     uint32_t done_ms = 0;
-    if (e || !L->field || !L->tmp) {
+    if (e || !L->field || !L->tmp || !vb_ok) {
         *why = e ? e : "memoria";
     } else {
         L->rb = pdx_sym_ring();
         L->rb->w = L->rb->r = 0;
         L->pkt_pos = 188u;
         L->run = true;
-        xTaskCreatePinnedToCore(producer, "live_s2", 6144, L, 10, NULL, 1);
+        /* stack ampio (l'encoder H.264 della camera ne vuole circa 16 KB) e in PSRAM, per non consumare RAM interna */
+        xTaskCreatePinnedToCoreWithCaps(producer, "live_s2", 16384, L, 10, NULL, 1, MALLOC_CAP_SPIRAM);
         while (L->rb->w < L->rb->size / 2u && !L->done) vTaskDelay(1);   /* metà buffer pieno prima di partire */
+        if (L->cam_err) {
+            *why = L->cam_err;
+            L->run = false;
+            while (!L->done) vTaskDelay(1);
+            goto out;
+        }
         printf("LIVE TS %.0f bit/s, PLFRAME %u simboli, DATA FIELD %u bit, %u frame pronti\n", rate,
                (unsigned)L->s2.nsym, (unsigned)L->s2.dfl, (unsigned)L->frames);
         fflush(stdout);
@@ -158,10 +227,80 @@ uint32_t pdx_live_play(const pdx_live_cfg_t *c, uint32_t ms, pdx_rf_abort_fn abo
                "PES in ritardo %u, giri del loop video %u\n", (unsigned)L->frames, (unsigned)L->enc_max_us,
                (unsigned)(L->wait_us / 1000u), (unsigned)m->stats_video, (unsigned)m->stats_audio,
                (unsigned)m->stats_null, (unsigned)m->late, (unsigned)m->v.loop);
+        if (c->camera)
+            printf("CAM %u fotogrammi (%.1f fps), persi %u, codifica media %u ms max %u ms, %.0f kbit/s video\n",
+                   (unsigned)L->cam_frames, L->cam_frames * 1000.0 / (done_ms ? done_ms : 1), (unsigned)L->cam_dropped,
+                   (unsigned)(L->cam_frames ? L->cam_enc_sum_us / L->cam_frames / 1000u : 0),
+                   (unsigned)(L->cam_enc_max_us / 1000u), L->cam_bytes * 8.0 / (done_ms ? done_ms : 1));
     }
+out:
+    for (int i = 0; i < PDX_VQ_LEN; i++) heap_caps_free(L->vbuf[i]);
     heap_caps_free(L->field);
     heap_caps_free(L->tmp);
     pdx_s2_free(&L->s2);
     heap_caps_free(L);
     return done_ms;
+}
+
+/* ------------------------------------------------------------ diagnosi senza RF: TS del modo camera */
+typedef struct {
+    live_t *L;
+    uint32_t npk;
+    volatile bool done;
+} dump_job_t;
+
+static void dump_task(void *arg)
+{
+    dump_job_t *j = arg;
+    live_t *L = j->L;
+    L->cam_err = pdx_cam_live_init(L->cfg->cam_fps, L->cfg->cam_kbps);
+    const double pkt_per_us = L->mux.rate / 1504.0 / 1e6;
+    uint32_t sent = 0;
+    uint8_t pk[188];
+    while (!L->cam_err && sent < j->npk) {
+        const int64_t t0 = esp_timer_get_time();
+        camera_step(L);
+        /* i pacchetti che il TS avrebbe trasmesso nel tempo della cattura e della codifica */
+        uint32_t n = (uint32_t)((esp_timer_get_time() - t0) * pkt_per_us) + 1u;
+        for (; n && sent < j->npk; n--, sent++) {
+            pdx_mux_next(&L->mux, pk);
+            printf("T ");
+            for (int k = 0; k < 188; k++) printf("%02x", pk[k]);
+            printf("\n");
+        }
+    }
+    j->done = true;
+    vTaskDeleteWithCaps(NULL);
+}
+
+const char *pdx_live_cam_dump(const pdx_live_cfg_t *c, uint32_t npk)
+{
+    const uint8_t *es = es_open();
+    if (!es) return "file ES";
+    live_t *L = heap_caps_calloc(1, sizeof(live_t), MALLOC_CAP_SPIRAM);
+    if (!L) return "memoria";
+    pdx_s2_t s2;
+    const char *e = pdx_s2_init(&s2, c->fec, c->shortf, c->pilots);
+    if (!e) {
+        const double rate = pdx_s2_ts_bitrate(&s2, c->sr);
+        pdx_s2_free(&s2);
+        e = pdx_mux_init(&L->mux, es, rate, c->service, c->provider, true);
+        L->cfg = c;
+        for (int i = 0; !e && i < PDX_VQ_LEN; i++)
+            if (!(L->vbuf[i] = heap_caps_malloc(VBUF_CAP, MALLOC_CAP_SPIRAM))) e = "memoria";
+        if (!e) {
+            dump_job_t j = {.L = L, .npk = npk};
+            xTaskCreatePinnedToCoreWithCaps(dump_task, "cam_dump", 16384, &j, 5, NULL, 1, MALLOC_CAP_SPIRAM);
+            while (!j.done) vTaskDelay(pdMS_TO_TICKS(10));
+            if (L->cam_err) e = L->cam_err;
+            printf("CAMDUMP fine: %u fotogrammi, persi %u, codifica media %u ms, video %u, audio %u, nulli %u, ritardo %u\n",
+                   (unsigned)L->cam_frames, (unsigned)L->cam_dropped,
+                   (unsigned)(L->cam_frames ? L->cam_enc_sum_us / L->cam_frames / 1000u : 0),
+                   (unsigned)L->mux.stats_video, (unsigned)L->mux.stats_audio, (unsigned)L->mux.stats_null,
+                   (unsigned)L->mux.late);
+        }
+    }
+    for (int i = 0; i < PDX_VQ_LEN; i++) heap_caps_free(L->vbuf[i]);
+    heap_caps_free(L);
+    return e;
 }

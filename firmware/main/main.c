@@ -46,6 +46,7 @@
 #include "live_tx.h"
 #include "dvbs2_enc.h"
 #include "ts_mux.h"
+#include "cam_live.h"
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
@@ -316,7 +317,7 @@ static void handle(char *line)
         pdx_s2_free(&s2);
         static pdx_mux_t mux;
         const uint8_t *es = pdx_live_es_data();
-        const char *e = pdx_mux_init(&mux, es, rate, cfg.callsign, "IZ7PDX BEACON");
+        const char *e = pdx_mux_init(&mux, es, rate, cfg.callsign, "IZ7PDX BEACON", false);
         if (e) { printf("ERR %s\n", e); return; }
         printf("TSDUMP %u pacchetti a %.0f bit/s\n", (unsigned)n, rate);
         uint8_t pk[188];
@@ -329,19 +330,31 @@ static void handle(char *line)
         printf("TSDUMP fine: video %u audio %u nulli %u, PES in ritardo %u\n", (unsigned)mux.stats_video,
                (unsigned)mux.stats_audio, (unsigned)mux.stats_null, (unsigned)mux.late);
 
-    } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] */
-        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots]\n"); return; }
+    } else if (!strcasecmp(argv[0], "CAMDUMP")) {             /* CAMDUMP <pacchetti>: TS del modo camera, senza RF */
+        if (argc != 2) { printf("ERR CAMDUMP <pacchetti>\n"); return; }
+        pdx_live_cfg_t lc = {.sr = 333000, .fec = "3/4", .pilots = true, .service = cfg.callsign,
+                             .provider = "IZ7PDX BEACON", .camera = true, .cam_fps = 6, .cam_kbps = 250,
+                             .freq_khz = cfg.freq_khz};
+        printf("CAMDUMP %u pacchetti\n", (unsigned)atoi(argv[1]));
+        const char *e = pdx_live_cam_dump(&lc, (uint32_t)atoi(argv[1]));
+        if (e) printf("ERR %s\n", e);
+
+    } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam] */
+        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam]\n"); return; }
         pdx_live_cfg_t lc = {.sr = 333000, .fec = "3/4", .shortf = false, .pilots = true, .amp = atoi(argv[2]),
-                             .service = cfg.callsign, .provider = "IZ7PDX BEACON"};
+                             .service = cfg.callsign, .provider = "IZ7PDX BEACON", .cam_fps = 6, .cam_kbps = 250};
         for (int i = 4; i < argc; i++) {
             if (!strcasecmp(argv[i], "short")) lc.shortf = true;
             else if (!strcasecmp(argv[i], "nopilots")) lc.pilots = false;
+            else if (!strcasecmp(argv[i], "cam")) lc.camera = true;
             else lc.fec = argv[i];
         }
         const uint32_t secs = (uint32_t)atoi(argv[3]);
         if (!tx_common(argv[1], lc.amp, secs, &fkhz)) return;
+        lc.freq_khz = fkhz;
         printf("TX ON ESPLAY %.3f MHz SR %u FEC %s %s %s, amp %d per %u s\n", fkhz / 1000.0, (unsigned)lc.sr, lc.fec,
                lc.shortf ? "corti" : "normali", lc.pilots ? "pilot" : "senza pilot", lc.amp, (unsigned)secs);
+        if (lc.camera) printf("    video dalla camera: H.264 %dx%d, %d fps, %d kbit/s\n", PDX_CAM_W, PDX_CAM_H, lc.cam_fps, lc.cam_kbps);
         tx_start_note();
         const char *why;
         const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);

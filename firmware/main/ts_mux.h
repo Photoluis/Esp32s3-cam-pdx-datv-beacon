@@ -33,8 +33,21 @@ typedef struct {
     bool active;
 } pdx_es_cursor_t;
 
+#define PDX_VQ_LEN 4                     /* fotogrammi in coda (modo camera) */
+
+typedef struct {
+    uint8_t *buf;                        /* fornito dal chiamante, resta valido finché il PES non è stato inviato */
+    uint32_t len;
+    uint64_t pts;                        /* 90 kHz, assoluto */
+} pdx_vq_entry_t;
+
 typedef struct {
     double rate;                         /* bit/s del TS */
+    uint8_t vtype;                       /* stream_type del video nel PMT: 0x24 H.265, 0x1B H.264 */
+    bool vqueue;                         /* video dalla coda (camera) invece che dal file ES */
+    pdx_vq_entry_t vq[PDX_VQ_LEN];
+    volatile uint32_t vq_r, vq_w;
+    bool vq_sending;
     uint64_t n;                          /* pacchetti emessi */
     uint64_t pts_base;                   /* 90 kHz: tempo di presentazione dell'inizio del primo giro */
     uint64_t next_psi, next_sdt, next_pcr;   /* in pacchetti */
@@ -47,6 +60,11 @@ typedef struct {
     uint32_t stats_null, stats_video, stats_audio;
 } pdx_mux_t;
 
-/* apre il file ES mappato; NULL se riuscito, altrimenti il motivo */
-const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider);
+/* apre il file ES mappato (audio sempre dal file; video dal file oppure, con vqueue, dalla coda); NULL se riuscito */
+const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider,
+                         bool vqueue);
+uint64_t pdx_mux_now_90k(const pdx_mux_t *m);           /* tempo del multiplexer (pacchetti emessi) */
+bool pdx_mux_vq_space(const pdx_mux_t *m);              /* c'è posto per un fotogramma nella coda */
+pdx_vq_entry_t *pdx_mux_vq_slot(pdx_mux_t *m);          /* posto libero: il chiamante riempie buf, len, pts */
+void pdx_mux_vq_commit(pdx_mux_t *m);                   /* mette in coda il fotogramma del posto libero */
 void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188]);      /* prossimo pacchetto da 188 byte */

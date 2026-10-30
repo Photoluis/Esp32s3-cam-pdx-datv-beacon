@@ -1,6 +1,7 @@
-"""Beacon DATV IZ7PDX - cattura il TS del multiplexer del firmware (comando TSDUMP) in un file .ts.
+"""Beacon DATV IZ7PDX - cattura il TS del multiplexer del firmware in un file .ts.
 
-Uso: python ts_capture.py COM3 <pacchetti> out/capture.ts
+Uso: python ts_capture.py COM3 <pacchetti> out/capture.ts [TSDUMP|CAMDUMP]
+TSDUMP = monoscopio dal file ES (predefinito), CAMDUMP = camera dal vivo (H.264).
 """
 import sys
 import time
@@ -10,6 +11,7 @@ import serial
 
 def main():
     port, n, path = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+    cmd = sys.argv[4].upper() if len(sys.argv) > 4 else "TSDUMP"
     p = serial.Serial()
     p.port, p.baudrate, p.timeout = port, 115200, 0.5
     p.dtr = False
@@ -17,7 +19,7 @@ def main():
     p.open()
     time.sleep(0.2)
     p.reset_input_buffer()
-    p.write(f"TSDUMP {n}\n".encode())
+    p.write(f"{cmd} {n}\n".encode())
     out, buf, t_end = bytearray(), b"", time.time() + 30 + n * 0.04
     while time.time() < t_end:
         buf += p.read(4096)
@@ -26,9 +28,9 @@ def main():
             s = line.decode("ascii", "replace").strip()
             if s.startswith("T "):
                 out += bytes.fromhex(s[2:])
-            elif s.startswith(("TSDUMP", "ERR")):
+            elif s.startswith((cmd, "ERR")):
                 print(s)
-                if s.startswith(("TSDUMP fine", "ERR")):
+                if s.startswith((cmd + " fine", "ERR")):
                     t_end = 0
     p.close()
     open(path, "wb").write(out)
