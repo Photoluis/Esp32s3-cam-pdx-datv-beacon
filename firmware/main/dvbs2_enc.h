@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Codificatore DVB-S2 sull'ESP32-S3 (QPSK, CCM, un solo TS): porting in C di tools/dvbs2/encoder.py, secondo
  * ETSI EN 302 307-1 (5.1 mode adaptation, 5.2 BB scrambling, 5.3 BCH + LDPC, 5.4.1 QPSK, 5.5 PL framing). */
 #pragma once

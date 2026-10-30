@@ -30,3 +30,6 @@ Thumbs.db
 
 # video e immagini personali (non nel repository)
 media/
+
+# prova iniziale della scheda (PlatformIO / Arduino), solo locale
+hwtest/

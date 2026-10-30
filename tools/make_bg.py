@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - immagine 320x240 YUYV "PDXIMG01" per il PiP e per il monoscopio fisso personalizzato.
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - immagine 320x240 YUYV "PDXIMG01" per il PiP e per il monoscopio fisso personalizzato.
 
 Formato (little endian): intestazione di 64 byte  magic[8] "PDXIMG01", larghezza u16, altezza u16, formato u32 (1 = YUYV),
 byte di dati u32, CRC-32 dei dati u32, label[36], 4 byte riservati; poi 320x240x2 byte YUYV (Y0 U Y1 V).

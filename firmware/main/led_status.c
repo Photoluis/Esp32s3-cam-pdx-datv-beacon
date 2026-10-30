@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * LED RGB WS2812 con la periferica RMT (vedi led_status.h). */
 #include <stdint.h>
 #include "led_status.h"

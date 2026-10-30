@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Video H.264 320x240 generato dal vivo sul core 1: camera OV3660 a pieno schermo, camera in PiP su un'immagine di sfondo,
  * oppure un'immagine fissa (monoscopio personalizzato statico); encoder software esp_h264. */
 #pragma once

@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - analisi dei tempi di un TS: per ogni PES calcola l'istante di arrivo (dal PCR, interpolato sulla
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - analisi dei tempi di un TS: per ogni PES calcola l'istante di arrivo (dal PCR, interpolato sulla
 posizione nel flusso a bitrate costante) e lo confronta con il PTS. Margine = PTS - arrivo: se diventa piccolo o negativo
 il decoder riceve i dati in ritardo e li scarta.
 

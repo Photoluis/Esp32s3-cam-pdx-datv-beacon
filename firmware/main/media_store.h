@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Immagini e video del beacon nella partizione "symbols" (offset relativi alla partizione, che parte a 0x210000):
  *
  *   0x000000  simboli DVB-S2 precalcolati (PLAY, prove)

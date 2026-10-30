@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - monoscopio come flussi elementari per il multiplexer TS del firmware (ESPLAY, fase C2).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - monoscopio come flussi elementari per il multiplexer TS del firmware (ESPLAY, fase C2).
 
 Genera con ffmpeg il monoscopio (H.265 640x360 25 fps, GOP 48 = 1,92 s, AAC mono 32 kbit/s, tono 1 kHz) lungo
 esattamente 19,2 s: multiplo comune delle immagini (40 ms) e dei frame AAC (1024 campioni a 48 kHz = 21,33 ms), così il

@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - cattura il TS del multiplexer del firmware in un file .ts.
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - cattura il TS del multiplexer del firmware in un file .ts.
 
 Uso: python ts_capture.py COM3 <pacchetti> out/capture.ts [TSDUMP|CAMDUMP|PIPDUMP|IMGDUMP]
 TSDUMP = monoscopio standard (predefinito); CAMDUMP, PIPDUMP, IMGDUMP = modi dal vivo H.264 (camera, PiP, immagine).

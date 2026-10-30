@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - genera firmware/main/font8x16.h (ASCII 32..126, celle 8x16, un byte per riga, bit 7 = sinistra)
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - genera firmware/main/font8x16.h (ASCII 32..126, celle 8x16, un byte per riga, bit 7 = sinistra)
 per la sovrimpressione disegnata dall'ESP sulle immagini della camera.
 
 Uso: python gen_font.py C:/Windows/Fonts/consolab.ttf ../firmware/main/font8x16.h

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Catena del TS generato sull'ESP (vedi live_tx.h). Durante la TX il core 0 ha gli interrupt mascherati e il tick di
  * FreeRTOS è fermo: il produttore sul core 1 aspetta con esp_rom_delay_us, mai con vTaskDelay. */
 #include "live_tx.h"

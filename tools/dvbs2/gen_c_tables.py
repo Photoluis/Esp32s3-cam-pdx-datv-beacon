@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - genera firmware/main/dvbs2_tables.h dalle tabelle LDPC verificate (ldpc_tables.json).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - genera firmware/main/dvbs2_tables.h dalle tabelle LDPC verificate (ldpc_tables.json).
 
 Uso: python gen_c_tables.py ../../firmware/main/dvbs2_tables.h
 """

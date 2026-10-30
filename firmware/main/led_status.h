@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * LED RGB della scheda (WS2812 su GPIO48, schema Freenove / diymore ESP32-S3-CAM): stato del beacon.
  *   blu tenue        configurazione, nessuna TX
  *   TX               colore "di calore" del livello: rosso scuro ai livelli bassi, poi arancio, giallo e bianco a 0 dB

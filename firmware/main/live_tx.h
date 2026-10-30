@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * TX con TS generato sull'ESP: multiplexer (ts_mux) -> DVB-S2 (dvbs2_enc) sul core 1 -> buffer circolare ->
  * modulatore QPSK RRC sul core 0. Video dal file ES (monoscopio precodificato) oppure H.264 generato dal vivo
  * (camera, camera in PiP, immagine fissa); l'audio viene sempre dal file ES. */

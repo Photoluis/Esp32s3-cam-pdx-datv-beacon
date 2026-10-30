@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Video dal vivo per il TS (vedi cam_live.h). La camera viene inizializzata una sola volta: spegnerla e riaccenderla
  * blocca il driver (prova del 29/10). Pin: schema Freenove / diymore ESP32-S3-CAM; D0 (GPIO11) della scheda di prova è
  * interrotto, in YUV si perde solo il bit meno significativo. */

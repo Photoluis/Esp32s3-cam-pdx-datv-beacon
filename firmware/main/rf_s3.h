@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Trasmettitore Wi-Fi dell'ESP32-S3 usato come modulatore I/Q (porting del metodo di SP8ESA, scritto da zero). */
 #pragma once
 #include <stdbool.h>

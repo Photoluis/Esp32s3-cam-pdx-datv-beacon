@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - invia comandi senza TX al firmware e stampa le risposte (attesa massima per comando in secondi).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - invia comandi senza TX al firmware e stampa le risposte (attesa massima per comando in secondi).
 
 Uso: python serial_cmd.py COM3 60 "CAMBENCH 320 240 100 300 12" ["altro comando" ...]
 Per i comandi che trasmettono usare tx_ctl.py.

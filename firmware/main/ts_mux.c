@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Multiplexer MPEG-TS (vedi ts_mux.h). Il tempo del multiplexer è il numero di pacchetti emessi: a bitrate costante il
  * pacchetto n esce a n * 1504 / rate secondi, quindi PCR e PTS seguono il ritmo reale dei simboli trasmessi.
  * Tra un segmento e l'altro del beacon (monoscopio, camera, PiP) il tempo prosegue (più la pausa reale), il PMT cambia

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Codificatore DVB-S2 (vedi dvbs2_enc.h). Verificato bit per bit contro tools/dvbs2/encoder.py con il comando S2TEST. */
 #include "dvbs2_enc.h"
 

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Immagini e video del beacon nella flash (vedi media_store.h). */
 #include "media_store.h"
 

@@ -1,6 +1,6 @@
-"""Beacon DATV IZ7PDX - invio di un comando TX al firmware RF000x sulla porta TTL.
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - invio di un comando TX al firmware sulla porta TTL.
 
-Uso: python tx_ctl.py COM3 "CW 2400.000 200 300" [file_stop]
+Uso: python tx_ctl.py COM3 "CW 2400.000 200 300" [file_stop] [secondi_massimi]
 Apre la porta senza resettare la scheda, invia il comando e stampa le risposte fino a "TX OFF".
 Se file_stop esiste durante la TX invia un carattere, che ferma la trasmissione.
 """
@@ -24,7 +24,8 @@ def main():
     p.reset_input_buffer()
     p.write((cmd + "\n").encode())
     is_tx = cmd.split()[0].upper() in ("CW", "TONE", "QPSK", "PLAY", "ESPLAY", "BEACON")
-    buf, t_end, stopped = b"", time.time() + (330 if is_tx else 2), False
+    max_s = float(sys.argv[4]) if len(sys.argv) > 4 else (330 if is_tx else 2)   # durata massima dell'ascolto
+    buf, t_end, stopped = b"", time.time() + max_s, False
     while time.time() < t_end:
         buf += p.read(256)
         while b"\n" in buf:

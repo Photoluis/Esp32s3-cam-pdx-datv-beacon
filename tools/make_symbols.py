@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - file di simboli per la partizione "symbols" del firmware (RF0004 e successivi).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - file di simboli per la partizione "symbols" del firmware (comando PLAY).
 
 Formato: intestazione di 64 byte (vedi firmware/main/sym_player.h) + simboli QPSK, 4 per byte, primo simbolo nei bit bassi,
 bit 0 = I, bit 1 = Q (1 = +1).

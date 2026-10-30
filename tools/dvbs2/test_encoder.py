@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - prove del codificatore DVB-S2.
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - prove del codificatore DVB-S2.
 
 1. vettore di prova del BB scrambler (figura 5 della norma: uscita 0000 0011 ...)
 2. BCH: ogni parola di codice è divisibile per il polinomio generatore

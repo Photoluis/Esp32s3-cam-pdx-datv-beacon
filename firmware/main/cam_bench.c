@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Prova di fattibilità della diretta (nessuna RF): cattura YUV422 dalla OV3660 e codifica H.264 software, su un task del
  * core 1 (nel beacon il core 0 è occupato dal modulatore). Pin della camera: schema Freenove / diymore ESP32-S3-CAM.
  * D0 (GPIO11) sulla scheda di prova è interrotto: in YUV si perde solo il bit meno significativo. */

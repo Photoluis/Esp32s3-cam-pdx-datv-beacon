@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - casi di prova per il codificatore DVB-S2 del firmware (comando S2TEST).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - casi di prova per il codificatore DVB-S2 del firmware (comando S2TEST).
 
 Per ogni codice (frame normali e corti) con e senza pilot: un TS di prova e i simboli attesi calcolati da encoder.py
 (CRC-8 precedente iniziale = 0, come il firmware). Il file va scritto a 0xC00000 nella partizione "symbols":

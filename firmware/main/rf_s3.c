@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Accesso al DAC I/Q del blocco RF dell'ESP32-S3.
  *
  * Indirizzi ricavati dalla libreria Espressif librftest.a (esp32s3, funzioni dactrig/adctrig) e confrontati con quelli

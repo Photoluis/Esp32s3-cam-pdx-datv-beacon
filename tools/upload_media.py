@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - carica un monoscopio personalizzato sulla scheda via porta seriale (COM).
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - carica un monoscopio personalizzato sulla scheda via porta seriale (COM).
 
   python upload_media.py COM3 VIDEO out/mio_es.bin      video preparato con make_es.py --video / --image
   python upload_media.py COM3 IMAGE foto.jpg            immagine qualsiasi (convertita qui a 320x240) o .bin di make_bg.py

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Lettore dei simboli: la partizione "symbols" è mappata in memoria; un task sul core 1 copia i byte in un buffer circolare
  * nella RAM interna, il core 0 li modula senza mai passare dalla cache della flash. */
 #include "sym_player.h"

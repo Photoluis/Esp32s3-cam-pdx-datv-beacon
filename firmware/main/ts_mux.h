@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Multiplexer MPEG-TS sull'ESP (fase C2): un programma, PAT/PMT/SDT, PCR su un PID dedicato, PES video e audio con
  * timestamp sempre crescenti, CBR al bitrate del MODCOD (pacchetti nulli). Sorgente: flussi elementari "PDXES001"
  * (tools/make_es.py) ripetuti in loop aggiungendo a ogni giro la durata del loop. */

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Sovrimpressione su immagini YUYV (YUV 4:2:2, Y0 U Y1 V): riquadri e testo con il font 8x16. */
 #pragma once
 #include <stdint.h>

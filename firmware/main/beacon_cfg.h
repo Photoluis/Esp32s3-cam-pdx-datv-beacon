@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Configurazione del beacon salvata in NVS e ciclo autonomo (monoscopio / camera / pausa). */
 #pragma once
 #include <stdbool.h>

@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - tabelle DVB-S2 estratte dalla norma ETSI EN 302 307-1 V1.4.1.
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - tabelle DVB-S2 estratte dalla norma ETSI EN 302 307-1 V1.4.1.
 
 Legge il testo della norma (estratto dal PDF con pypdf in ref/etsi/en302307.txt), ricostruisce le tabelle degli indirizzi
 degli accumulatori di parità LDPC (annessi B e C) e le salva in ldpc_tables.json. Ogni tabella è verificata:

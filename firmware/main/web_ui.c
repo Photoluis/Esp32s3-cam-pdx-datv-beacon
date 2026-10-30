@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Access point Wi-Fi e server HTTP di configurazione. Il server gira sul core 1; le modifiche passano da pdx_cfg_set(),
  * con gli stessi controlli del comando SET della seriale. */
 #include "web_ui.h"

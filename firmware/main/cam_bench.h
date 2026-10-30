@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Prova di fattibilità della diretta: camera OV3660 in YUV422 + encoder H.264 software (esp_h264), sul core 1. */
 #pragma once
 #include <stdint.h>

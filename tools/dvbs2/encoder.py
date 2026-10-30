@@ -1,4 +1,4 @@
-"""Beacon DATV IZ7PDX - codificatore DVB-S2 (QPSK, CCM, un solo Transport Stream), scritto dalla norma
+"""ESP32-S3-CAM_PDX DATV Beacon (IZ7PDX, GPL-3.0) - codificatore DVB-S2 (QPSK, CCM, un solo Transport Stream), scritto dalla norma
 ETSI EN 302 307-1 V1.4.1:
   5.1   mode adaptation: CRC-8 dei pacchetti, BBHEADER (MATYPE, UPL, DFL, SYNC, SYNCD, CRC-8)
   5.2   stream adaptation: BB scrambling con PRBS 1 + X^14 + X^15

@@ -1,4 +1,4 @@
-/* Beacon DATV 13 cm - IZ7PDX
+/* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Interfaccia web di configurazione: access point Wi-Fi "<QRZ>-BEACON" e pagina su http://192.168.4.1.
  * Attiva solo a TX ferma: durante la TX la radio Wi-Fi fa da modulatore DATV. */
 #pragma once
