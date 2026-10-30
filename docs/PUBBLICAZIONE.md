@@ -1,5 +1,7 @@
 # Pubblicazione su GitHub — timeline
 
+Progetto: **ESP32-S3-CAM_PDX DATV Beacon** — repository proposto `esp32s3-cam-pdx-datv-beacon` — contatto iz7pdx@gmail.com.
+
 Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l'ok di IZ7PDX.
 
 | Fase | Quando | Cosa | Esito |
@@ -27,7 +29,7 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
   in alto: foto della ricezione, cosa fa, cosa serve, come provarlo in 10 minuti.
 - Guide: compilazione con ESP-IDF, programmazione senza compilare, primo avvio, pagina web, monoscopi personalizzati
   (`docs/MONOSCOPIO.md`), comandi della seriale, prove (`docs/TEST_MER_20261030.md`).
-- **PDF del progetto** (`docs/Beacon_DATV_13cm_ESP32-S3_IZ7PDX.pdf`) generato da `tools/md2pdf.py`: lo stesso testo del
+- **PDF del progetto** (`docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf`) generato da `tools/md2pdf.py`: lo stesso testo del
   repository, consultabile anche offline. Versione inglese del PDF dopo la traduzione.
 
 ## 3. Licenze e avvertenze (6/11)
@@ -45,7 +47,7 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
 
 ## 5. GitHub (8/11)
 
-- Da decidere con IZ7PDX: **nome dell'account** e **nome del repository** (proposta: `esp32s3-datv-beacon`), descrizione,
+- Da decidere con IZ7PDX: **nome dell'account**; repository `esp32s3-cam-pdx-datv-beacon`; descrizione,
   argomenti (`datv`, `dvb-s2`, `ham-radio`, `esp32-s3`, `amateur-television`, `13cm`).
 - Primo push della storia git locale (autore Luigi D'Arcangelo IZ7PDX), etichetta **v1.0.0**, release con firmware
   unico, PDF e note di rilascio.
@@ -53,8 +55,11 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
 
 ## 6. Annuncio (9/11 – 15/11)
 
-- Forum **BATC** e rivista **CQ-DATV**, **ARI** e Radio Rivista, gruppi DATV e QO-100 sui social, QRZ.com.
-- Breve video: accensione, pagina dal telefono, ricezione su Portsdown con MER, cambio monoscopio ↔ PiP.
+- Piano completo in `docs/DIFFUSIONE.md`: BATC e CQ-DATV, ARI e RadioRivista, ATV Italia, ARI Fidenza, gruppi Facebook,
+  AMSAT-DL, associazioni estere, Hackaday, Reddit, QRZ.com.
+- Presentazioni pronte in 11 lingue con l'invito a collaborare: `docs/presentazione/` (Markdown + PDF).
+- Breve video: accensione, pagina dal telefono, ricezione su Portsdown con MER, cambio monoscopio ↔ PiP, monoscopio di
+  Halloween.
 
 ## 7. Dopo la v1.0
 

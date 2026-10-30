@@ -1,12 +1,14 @@
-"""Beacon DATV IZ7PDX - PDF della documentazione dai file Markdown di docs/ (stesso testo del repository).
+"""ESP32-S3-CAM_PDX DATV Beacon - PDF della documentazione dai file Markdown di docs/ (stesso testo del repository).
 
-Uso: python md2pdf.py [-o ../docs/Beacon_DATV_13cm_ESP32-S3_IZ7PDX.pdf]
+Uso: python md2pdf.py [-o ../docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf]     documento completo del progetto
+     python md2pdf.py --presentazioni                                   presentazioni, un PDF per lingua
 Converte docs/PROGETTO.md e le appendici in un HTML da stampa e lo fa stampare in PDF da Microsoft Edge o Google Chrome
 senza interfaccia (--headless --print-to-pdf). Il convertitore copre solo il Markdown usato nei documenti del progetto:
 titoli, paragrafi, elenchi, tabelle, blocchi di codice, citazioni, grassetto, codice, collegamenti e immagini.
 """
 import argparse
 import html
+import os
 import re
 import shutil
 import subprocess
@@ -144,30 +146,66 @@ def find_browser() -> str:
     raise SystemExit("serve Microsoft Edge o Google Chrome per stampare il PDF")
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-o", "--output", default=str(DOCS / "Beacon_DATV_13cm_ESP32-S3_IZ7PDX.pdf"))
-    a = ap.parse_args()
-    body = ['<div class="cover"><div class="tag">DVB-S2 · 13 cm · ESP32-S3</div><h1>Beacon DATV 13 cm su ESP32-S3</h1>'
-            '<div class="sub">Trasmettitore DVB-S2 autonomo con camera, su una sola scheda</div>'
-            '<img src="img/test_mer_20261030/05_m9.6dB_MER26.0.jpg" alt="">'
-            '<div class="who"><b>Luigi D\'Arcangelo, IZ7PDX</b></div><div class="lic">Ottobre 2026 · GPL-3.0</div></div>']
-    for name, tag in PARTS:
-        md = (DOCS / name).read_text(encoding="utf-8")
-        body.append(f'<div class="part">{f"<div class=tag>{tag}</div>" if tag else ""}{md_to_html(md)}</div>')
-    page = (f'<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Beacon DATV 13 cm su ESP32-S3 - IZ7PDX</title>'
-            f"<style>{CSS}</style></head><body>{''.join(body)}</body></html>")
-    with tempfile.NamedTemporaryFile("w", suffix=".html", dir=DOCS, delete=False, encoding="utf-8") as f:
+PROJECT = "ESP32-S3-CAM_PDX DATV Beacon"
+RTL = {"ar"}
+PRES_DIR = DOCS / "presentazione"
+# indirizzo del repository nelle presentazioni: variabile d'ambiente PDX_REPO_URL (finché non c'è, il nome proposto)
+REPO_URL = os.environ.get("PDX_REPO_URL", "GitHub: esp32s3-cam-pdx-datv-beacon")
+
+
+def print_pdf(page: str, base: Path, output: Path) -> None:
+    """stampa in PDF una pagina HTML; base = cartella da cui si risolvono le immagini"""
+    with tempfile.NamedTemporaryFile("w", suffix=".html", dir=base, delete=False, encoding="utf-8") as f:
         f.write(page)
         tmp = Path(f.name)
     try:
         with tempfile.TemporaryDirectory() as prof:
             subprocess.run([find_browser(), "--headless=new", "--disable-gpu", "--no-first-run", f"--user-data-dir={prof}",
-                            "--no-pdf-header-footer", f"--print-to-pdf={Path(a.output).resolve()}", tmp.as_uri()],
+                            "--no-pdf-header-footer", f"--print-to-pdf={output.resolve()}", tmp.as_uri()],
                            check=True, capture_output=True, timeout=180)
     finally:
         tmp.unlink(missing_ok=True)
-    print(f"{a.output}: {Path(a.output).stat().st_size // 1024} KB")
+    print(f"{output}: {output.stat().st_size // 1024} KB")
+
+
+def html_page(body: str, lang: str, title: str) -> str:
+    rtl = lang in RTL
+    extra = "body{direction:rtl;text-align:right} pre,code{direction:ltr;text-align:left} ul,ol{padding-left:0;padding-right:20px}" \
+            " th{text-align:right} blockquote{border-left:0;border-right:3px solid #36c2ff}" if rtl else ""
+    return (f'<!doctype html><html lang="{lang}" dir="{"rtl" if rtl else "ltr"}"><head><meta charset="utf-8">'
+            f"<title>{html.escape(title)}</title><style>{CSS}{extra}</style></head><body>{body}</body></html>")
+
+
+def build_project(output: Path) -> None:
+    body = ['<div class="cover"><div class="tag">DVB-S2 · 2300–2450 MHz · ESP32-S3</div>'
+            f'<h1>{PROJECT}</h1>'
+            '<div class="sub">Trasmettitore DVB-S2 autonomo con camera, su una sola scheda</div>'
+            '<img src="img/test_mer_20261030/05_m9.6dB_MER26.0.jpg" alt="">'
+            '<div class="who"><b>Luigi D\'Arcangelo, IZ7PDX</b></div><div class="lic">2026 · GPL-3.0</div></div>']
+    for name, tag in PARTS:
+        md = (DOCS / name).read_text(encoding="utf-8")
+        body.append(f'<div class="part">{f"<div class=tag>{tag}</div>" if tag else ""}{md_to_html(md)}</div>')
+    print_pdf(html_page("".join(body), "it", PROJECT + " - IZ7PDX"), DOCS, output)
+
+
+def build_presentations() -> None:
+    """docs/presentazione/PRESENTAZIONE_xx.md -> ESP32-S3-CAM_PDX_DATV_Beacon_xx.pdf (una per lingua)"""
+    for md_file in sorted(PRES_DIR.glob("PRESENTAZIONE_*.md")):
+        lang = md_file.stem.split("_")[-1].lower()
+        md = md_file.read_text(encoding="utf-8").replace("{{REPO}}", REPO_URL)
+        print_pdf(html_page(md_to_html(md), lang, f"{PROJECT} ({lang})"), PRES_DIR,
+                  PRES_DIR / f"ESP32-S3-CAM_PDX_DATV_Beacon_{lang}.pdf")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("-o", "--output", default=str(DOCS / "ESP32-S3-CAM_PDX_DATV_Beacon.pdf"))
+    ap.add_argument("--presentazioni", action="store_true", help="solo le presentazioni, un PDF per lingua")
+    a = ap.parse_args()
+    if a.presentazioni:
+        build_presentations()
+    else:
+        build_project(Path(a.output))
 
 
 if __name__ == "__main__":

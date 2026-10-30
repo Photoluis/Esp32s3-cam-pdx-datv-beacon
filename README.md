@@ -1,52 +1,43 @@
-# Beacon DATV 13 cm su ESP32-S3 — IZ7PDX
+# ESP32-S3-CAM_PDX DATV Beacon
 
-Beacon DVB-S2 autonomo per la banda radioamatoriale dei 13 cm (2300–2450 MHz) realizzato con una sola scheda
-ESP32-S3: il trasmettitore Wi-Fi del chip viene usato come modulatore I/Q, mentre il TS MPEG, la codifica DVB-S2
-(BCH, LDPC, framing) e la modulazione QPSK con filtro RRC sono calcolati sull'ESP stesso.
+*English · [Italiano](README_it.md)*
 
-> **English summary.** Stand-alone DVB-S2 amateur TV beacon for the 13 cm band on a single ESP32-S3 board. The chip's
-> Wi-Fi transmitter is driven as an I/Q modulator; MPEG-TS multiplexing, DVB-S2 coding (BCH, LDPC, PL framing) and
-> RRC-shaped QPSK are all computed on the ESP32-S3. Received with MER 25–27 dB on a Minitiouner (Portsdown 4) at
-> 333 kS/s, QPSK 3/4. Work in progress; documentation in Italian for now.
+A stand-alone **DVB-S2** amateur television beacon for the 13 cm band (2300–2450 MHz) — and, through an external mixer,
+for any other band — built on a single **ESP32-S3 camera board**. The chip's Wi-Fi transmitter is driven as an I/Q
+modulator, while video, MPEG-TS multiplexing, DVB-S2 coding (BCH, LDPC, PL framing) and RRC-shaped QPSK are all computed
+on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
 
-## Stato (30/10/2026, firmware RF0008)
+![Received with Portsdown 4 and Minitiouner, MER 26 dB](docs/img/test_mer_20261030/05_m9.6dB_MER26.0.jpg)
 
-| Funzione | Stato |
-|---|---|
-| Portante, tono, QPSK RRC 0,35 dal DAC del Wi-Fi | collaudato (spettro, quarzo ~1 ppm) |
-| Codificatore DVB-S2 (QPSK, frame normali e corti, tutti i rate, pilot) sull'ESP | collaudato: identico bit per bit al codificatore Python in 42/42 casi |
-| Multiplexer TS sull'ESP (PAT/PMT/SDT, PCR, PTS sempre crescenti, CBR) | collaudato: Minitiouner, MER 25–26 dB, nessuna interruzione |
-| Monoscopio H.265 640x360 25 fps + tono AAC, loop di 19,2 s senza interruzioni | collaudato |
-| Beacon autonomo (configurazione in NVS, partenza automatica, ciclo) | collaudato |
-| Configurazione da web (access point a TX ferma) e da seriale | collaudato |
-| Camera dal vivo (H.264 320x240), PiP sul monoscopio, monoscopio personalizzato (immagine o video) | collaudato: MER 24–25 dB, 0 fotogrammi persi |
-| Pagina web in 11 lingue (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR), livello in dB, FEC dal menu | collaudato (11 lingue: verificate sul PC) |
+## Features
 
-## Documentazione
+- **DVB-S2 QPSK**, 333 kS/s, FEC 1/2 to 9/10, normal frames with pilots — received with **MER 23–27 dB** on Portsdown 4
+  and Minitiouner. DVB-S2 encoder written from ETSI EN 302 307-1 and verified bit for bit (42/42 test cases).
+- **2300–2450 MHz** directly; **IF output for an external mixer** (transverter): set the local oscillator and the final
+  frequency is shown in the overlay and in the DVB service name; inverted spectrum is compensated.
+- **Live camera** (H.264 320x240), camera **picture-in-picture** on the test card, standard H.265 test card, test card
+  with **live data**, **custom test cards** (a photo from your phone or a video prepared on the PC) — Halloween one
+  included.
+- **Stand-alone beacon**: test card / camera / pause cycle, automatic start at power-on, output level in dB, RGB status
+  LED whose colour "warms up" with the output level.
+- **Web set-up from your phone** in 11 languages (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR) while not transmitting;
+  full serial command set.
 
-- [Il progetto](docs/PROGETTO.md): perché l'ESP32-S3, come funziona, tappe dello sviluppo, risultati
-  ([PDF completo](docs/Beacon_DATV_13cm_ESP32-S3_IZ7PDX.pdf), anche offline)
-- [Monoscopio personalizzato](docs/MONOSCOPIO.md): immagini dal telefono, video dal PC
-- [Prova MER / linearità](docs/TEST_MER_20261030.md) del 30/10/2026
-- [Timeline della pubblicazione](docs/PUBBLICAZIONE.md)
+## Documentation
+
+- [The project](docs/PROGETTO.md) (Italian; [complete PDF](docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf), also offline)
+- [Presentation in 11 languages](docs/presentazione/) with an invitation to collaborate (Markdown + PDF)
+- [Custom test cards](docs/MONOSCOPIO.md) (Italian)
+- [MER / linearity test](docs/TEST_MER_20261030.md), 30 Oct 2026 (Italian)
 
 ## Hardware
 
-- Scheda ESP32-S3 N16R8 (16 MB flash, 8 MB PSRAM) con camera OV3660, microSD, porte USB-C OTG e TTL
-  (provata: diymore ESP32-S3-CAM, disposizione Freenove).
-- Antenna per i 13 cm. **Per l'uso in aria è necessario un filtro passa-banda** sull'uscita: il DAC genera immagini.
-- Ricevitore DVB-S2 per la prova (es. Minitiouner / Portsdown 4).
+- ESP32-S3 N16R8 board (16 MB flash, 8 MB PSRAM) with OV3660 camera, USB-C and TTL serial, RGB LED on GPIO48
+  (tested: diymore ESP32-S3-CAM, Freenove layout).
+- 13 cm antenna. **A band-pass filter on the output is required for on-air use**: the DAC produces images.
+- A DVB-S2 receiver (e.g. Minitiouner / Portsdown 4).
 
-## Struttura
-
-```
-firmware/        firmware ESP-IDF 6.1 (main/: modulatore, DVB-S2, multiplexer, beacon, web)
-tools/           strumenti PC (Python): codificatore DVB-S2 di riferimento, monoscopio, controllo seriale
-tools/dvbs2/     codificatore DVB-S2 in Python, estrazione e verifica delle tabelle LDPC dalla norma ETSI
-hwtest/          prova iniziale della scheda (PlatformIO / Arduino)
-```
-
-## Compilazione e caricamento
+## Build and flash
 
 Firmware (ESP-IDF 6.1):
 ```
@@ -54,25 +45,33 @@ cd firmware
 idf.py set-target esp32s3
 idf.py -p COM3 flash
 ```
-Monoscopio (PC, Python 3 con numpy, ffmpeg con libx265):
+Standard test card and PiP background (PC: Python 3 with numpy and Pillow, ffmpeg with libx265):
 ```
 cd tools
-python make_es.py --callsign IZ7PDX/B -o out/mono_es.bin
-python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin
+python make_es.py -o out/mono_es.bin
+python make_bg.py -o out/bg_std.bin
+python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin 0xC10000 out/bg_std.bin
 ```
-Comandi principali sulla seriale (115200): `INFO`, `CONFIG`, `SET <chiave> <valore>`, `SAVE`, `BEACON`, `ESPLAY`,
-`S2TEST`; elenco completo all'inizio di `firmware/main/main.c`. Pagina web: rete `<QRZ>-BEACON`, http://192.168.4.1.
+Main serial commands (115200 baud): `INFO`, `CONFIG`, `SET <key> <value>`, `SAVE`, `BEACON`, `ESPLAY`, `MEDIA`,
+`LEDTEST`; the full list is at the top of `firmware/main/main.c`. Web page: Wi-Fi network `<CALLSIGN>-BEACON`,
+http://192.168.4.1.
 
-## Note legali
+## Contributing
 
-Il firmware trasmette solo tra 2300 e 2450 MHz. **Usarlo solo con una licenza di radioamatore valida, sulle frequenze
-e con le potenze consentite dalla propria licenza e dal band plan**, con un filtro adeguato sull'uscita.
+On-air reports, bug reports, improvement requests and translation reviews are very welcome: open an *Issue* or a
+*Discussion*, or write to **iz7pdx@gmail.com**.
 
-## Crediti
+## Legal notice
 
-- DVB-S2: ETSI EN 302 307-1 V1.4.1. Le tabelle LDPC sono estratte dalla norma e verificate (`tools/dvbs2/etsi_tables.py`).
-- Componenti Espressif: ESP-IDF, esp32-camera, esp_h264.
+The board only transmits between 2300 and 2450 MHz. **Use it only with a valid amateur radio licence, on the
+frequencies and at the power levels allowed by your licence and band plan**, always with a suitable filter on the
+output (and after the mixer when using a transverter).
 
-## Licenza
+## Credits
 
-GPL-3.0 — vedi [LICENSE](LICENSE).
+- DVB-S2: ETSI EN 302 307-1 V1.4.1. LDPC tables extracted from the standard and verified (`tools/dvbs2/etsi_tables.py`).
+- Espressif components: ESP-IDF, esp32-camera, esp_h264 (Apache 2.0; esp_h264 contains OpenH264, BSD).
+
+## Licence
+
+GPL-3.0 — see [LICENSE](LICENSE). © 2026 Luigi D'Arcangelo IZ7PDX — iz7pdx@gmail.com

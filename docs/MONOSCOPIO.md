@@ -11,6 +11,21 @@ monoscopio personalizzato, che si sceglie dal menu.
 
 L'immagine personalizzata serve anche come **sfondo del PiP** al posto delle barre (menu: *Sfondo del PiP*).
 
+C'è anche il **monoscopio con dati in tempo reale** (menu: *barre con dati in tempo reale*, seriale `SET monosrc LIVE`):
+le barre standard con QRZ, frequenza finale e tempo disegnati dal firmware, utile soprattutto con un transverter, perché
+il monoscopio standard H.265 non riporta la frequenza nell'immagine.
+
+## Esempio pronto: il monoscopio di Halloween
+
+`docs/media/halloween_es.bin` è un video personalizzato pronto da caricare (pagina web o
+`python upload_media.py COM3 VIDEO ../docs/media/halloween_es.bin`); l'anteprima è `docs/media/halloween.mp4`. Si rigenera
+con il proprio nominativo:
+
+```
+python make_halloween.py --callsign IZ7PDX/B -o out/halloween.mp4
+python make_es.py --video out/halloween.mp4 --no-text --no-band -o out/halloween_es.bin
+```
+
 ## Immagine fissa dal telefono
 
 1. Collegarsi alla rete Wi-Fi **`<QRZ>-BEACON`** (password predefinita `beacon13cm`, si cambia dal menu) e aprire

@@ -1,12 +1,13 @@
-# Beacon DATV 13 cm su ESP32-S3 — il progetto
+# ESP32-S3-CAM_PDX DATV Beacon — il progetto
 
-**Luigi D'Arcangelo, IZ7PDX** — ottobre 2026 — licenza GPL-3.0
+**Luigi D'Arcangelo, IZ7PDX** (iz7pdx@gmail.com) — ottobre 2026 — licenza GPL-3.0
 
 Un beacon di televisione digitale amatoriale **DVB-S2** per la banda dei **13 cm (2300–2450 MHz)** realizzato con una sola
 scheda ESP32-S3 con camera, che costa poche decine di euro. La scheda codifica il video, costruisce il flusso MPEG-TS,
 calcola la codifica DVB-S2 secondo la norma ETSI e genera il segnale QPSK in radiofrequenza con il proprio trasmettitore
 Wi-Fi, usato come modulatore I/Q. Non servono SDR, PC né Raspberry: basta alimentarla e collegare un'antenna (e, per l'uso
-in aria, un filtro e se serve un amplificatore).
+in aria, un filtro e se serve un amplificatore). Con un mixer esterno lo stesso segnale fa da frequenza intermedia per
+qualsiasi altra banda.
 
 ![Ricezione del monoscopio con il Portsdown 4 (−9,6 dB, MER 26 dB)](img/test_mer_20261030/05_m9.6dB_MER26.0.jpg)
 
@@ -17,9 +18,10 @@ in aria, un filtro e se serve un amplificatore).
 | Standard | DVB-S2 (ETSI EN 302 307-1 V1.4.1), QPSK, frame normali o corti, pilot, FEC da 1/2 a 9/10 |
 | Symbol rate collaudato | **333 kS/s** (banda occupata circa 450 kHz) |
 | Frequenza | 2300–2450 MHz, impostabile al kHz (standard del beacon: **2375,000 MHz**) |
+| Altre bande | uscita come **IF** verso un mixer esterno: oscillatore locale e frequenza finale impostabili, spettro invertito compensato |
 | Video | monoscopio H.265 640x360 25 fps precodificato; **camera dal vivo H.264 320x240** (5–7 fps, 9 fps in PiP) |
 | Audio | AAC mono 32 kbit/s (tono di identificazione da 1 kHz) |
-| Modi | monoscopio standard, video o immagine personalizzati, camera a pieno schermo, camera in **PiP** sul monoscopio |
+| Modi | monoscopio standard, monoscopio con dati in tempo reale, video o immagine personalizzati, camera a pieno schermo, camera in **PiP** sul monoscopio |
 | Controllo | pagina web dal telefono (access point a TX ferma) in 11 lingue, seriale, partenza automatica all'accensione |
 | Qualità in ricezione | **MER 23–27 dB** con Portsdown 4 + Minitiouner (prove indoor a 4 m) |
 | Hardware | ESP32-S3 N16R8 con camera OV3660 (diymore ESP32-S3-CAM, disposizione Freenove) |
@@ -158,7 +160,23 @@ modulatore scrive centinaia di milioni di campioni con al massimo pochi campioni
   scelte con la bandiera: italiano, inglese, tedesco, spagnolo, francese, portoghese, olandese, polacco, greco,
   giapponese e arabo (con scrittura da destra a sinistra).
 
-### 6. La prova di linearità
+### 6. Transverter, dati in tempo reale e LED di stato
+
+- **Altre bande con un mixer esterno.** Il segnale a 2300–2450 MHz può fare da frequenza intermedia: si impostano
+  l'oscillatore locale e il tipo di conversione (OL + IF oppure differenza) e la **frequenza finale** compare nella
+  sovrimpressione, nel nome del servizio DVB (che il ricevitore mostra, per esempio "BEACON 10375.000 MHz"), nella pagina
+  web e sulla seriale. Quando l'oscillatore sta sopra la IF il mixer inverte lo spettro: il firmware lo compensa
+  trasmettendo il complesso coniugato. Collaudato in aria con un oscillatore fittizio di 8000 MHz.
+- **Monoscopio con dati in tempo reale:** le barre standard con QRZ, frequenza finale e tempo aggiornati dal firmware.
+- **LED RGB di stato:** blu tenue in configurazione; in trasmissione un colore "di calore" proporzionale al livello,
+  dal rosso scuro dei livelli bassi all'arancio, al giallo e al bianco a 0 dB.
+- **Monoscopio di Halloween:** un video originale (cielo al tramonto, luna, zucche con la candela che tremola,
+  pipistrelli e un fantasmino) generato da `tools/make_halloween.py`, pronto da caricare come video personalizzato
+  (`docs/media/halloween_es.bin`).
+
+![Il monoscopio di Halloween (docs/media/halloween.mp4)](img/halloween.png)
+
+### 7. La prova di linearità
 
 Con dieci livelli da −23,5 a 0 dB (dettagli in `docs/TEST_MER_20261030.md`) il trasmettitore risulta **lineare fino a
 circa −6 dB**, con MER tra 23 e 26 dB; sopra −3,5 dB l'amplificatore interno del chip entra in compressione (MER intorno
@@ -179,6 +197,7 @@ a 17 dB, spalle nello spettro). Il livello predefinito del beacon è −7,6 dB.
 | Immagine personalizzata caricata da iPhone | MER 24+ dB |
 | Linearità | lineare fino a circa −6 dB, compressione sopra −3,5 dB |
 | Spettro a 333 kS (SPECTRUM HD del Pd4Pdx) | banda stimata 465 kHz, spalle circa 36 dB sotto il canale |
+| Frequenza finale con transverter (OL fittizio 8000 MHz) | "10375.000 MHz" in sovrimpressione e nel nome del servizio |
 | Tempo di codifica di un PLFRAME (QPSK 3/4) | circa 9 ms (il frame dura circa 100 ms) |
 
 ![Spettro del beacon a 2375,000 MHz, 333 kS (29/10/2026, SPECTRUM HD del Pd4Pdx): banda stimata 465 kHz](img/spettro_2375_333k.jpg)
@@ -204,6 +223,8 @@ tools/             strumenti per il PC (Python + ffmpeg)
   dvbs2/           codificatore DVB-S2 di riferimento e tabelle dalla norma
   make_es.py       monoscopio e video personalizzati (flussi elementari H.265 + AAC)
   make_bg.py       immagini 320x240 per PiP e monoscopio fisso
+  make_halloween.py monoscopio video di Halloween
+  md2pdf.py        PDF della documentazione e delle presentazioni
   upload_media.py  caricamento dalla porta seriale
 docs/              documentazione, prove, immagini
 ```
@@ -214,7 +235,7 @@ docs/              documentazione, prove, immagini
 - **Espressif** — ESP-IDF, esp32-camera ed esp_h264 (licenza Apache 2.0; esp_h264 contiene OpenH264, licenza BSD).
 - **BATC** — Portsdown 4 e Minitiouner, usati per tutte le prove di ricezione (Pd4Pdx Edition di IZ7PDX).
 - **FFmpeg / x265** — usati sul PC per preparare monoscopi e video.
-- Questo progetto: **GPL-3.0**, © 2026 Luigi D'Arcangelo IZ7PDX.
+- Questo progetto: **GPL-3.0**, © 2026 Luigi D'Arcangelo IZ7PDX — contatto: **iz7pdx@gmail.com**.
 
 ## Avvertenze
 
