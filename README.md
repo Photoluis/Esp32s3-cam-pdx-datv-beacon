@@ -19,7 +19,8 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
   with **live data**, **custom test cards** (a photo from your phone or a video prepared on the PC) — Halloween one
   included.
 - **Stand-alone beacon**: test card / camera / pause cycle, automatic start at power-on, output level in dB, RGB status
-  LED whose colour "warms up" with the output level.
+  LED whose colour "warms up" with the output level (normal, minimum or off for battery/solar operation).
+- **Telemetry overlay** (optional): chip temperature, uptime and cycle number; temperature also on the web page.
 - **Web set-up from your phone** in 11 languages (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR) while not transmitting;
   full serial command set.
 

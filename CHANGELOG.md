@@ -17,11 +17,15 @@ Prima versione pubblica di **ESP32-S3-CAM_PDX DATV Beacon**.
   web; spettro invertito compensato.
 - **Beacon autonomo:** ciclo monoscopio / camera / pausa, partenza automatica all'accensione, configurazione in NVS.
 - **Configurazione:** pagina web dal telefono (access point a TX ferma) in 11 lingue; comandi sulla seriale.
-- **LED RGB di stato:** blu in configurazione, colore di "calore" proporzionale al livello in trasmissione.
+- **LED RGB di stato:** blu in configurazione, colore di "calore" proporzionale al livello in trasmissione; normale,
+  al minimo o spento (alimentazione a batteria / pannello).
+- **Telemetria:** temperatura del chip, tempo di accensione e ciclo in sovrimpressione (modi dal vivo, da menu);
+  temperatura anche nella pagina web e sulla seriale.
 - **Strumenti PC:** monoscopi, sfondi, Halloween, caricamento via COM, cattura e analisi del TS, PDF della documentazione.
 
 Prove in aria con Portsdown 4 e Minitiouner: MER 23–27 dB; prova di linearità su 10 livelli
-(`docs/TEST_MER_20261030.md`).
+(`docs/TEST_MER_20261030.md`); prova continua di 20 minuti (9 cicli Halloween / PiP / pausa): buffer dei simboli mai
+vuoto, 5513 fotogrammi della camera, nessuno perso, nessun PES in ritardo.
 
 Limiti noti: circa 1 fotogramma H.264 su 100 non decodificabile nei modi PiP e immagine fissa (encoder software
 esp_h264; il flusso TS è integro); symbol rate collaudato solo 333 kS; potenza in dBm non ancora tarata.

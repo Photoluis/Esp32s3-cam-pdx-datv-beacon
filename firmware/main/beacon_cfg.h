@@ -29,7 +29,9 @@ typedef struct {
     /* dalla versione 4: uscita usata come IF verso un mixer esterno (transverter) */
     uint32_t lo_khz;        /* oscillatore locale esterno, kHz (0 = nessun mixer: si trasmette sulla IF) */
     uint8_t xvtr;           /* PDX_XVTR_*: frequenza finale = OL + IF oppure |OL - IF| */
-    uint8_t rsv4[3];
+    uint8_t led;            /* PDX_LED_*: 0 normale, 1 minimo, 2 spento (era riservato: 0 nelle configurazioni salvate) */
+    uint8_t telem;          /* riga di telemetria in sovrimpressione: temperatura del chip, accensione, ciclo */
+    uint8_t rsv4[1];
 } pdx_cfg_t;
 
 enum { PDX_MONO_STD, PDX_MONO_USR_VIDEO, PDX_MONO_USR_IMAGE, PDX_MONO_LIVE };
@@ -40,6 +42,8 @@ enum { PDX_XVTR_SUM, PDX_XVTR_DIFF };
 uint64_t pdx_cfg_final_khz(const pdx_cfg_t *c, uint32_t if_khz, bool *inverted);
 /* nome del fornitore nella SDT, con la frequenza finale ("BEACON 10368.250 MHz"): il ricevitore lo mostra */
 const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz);
+/* riga di telemetria per la sovrimpressione ("TEMP 41C  UP 3h12m  CYCLE 5"); NULL se disattivata */
+const char *pdx_cfg_telemetry(const pdx_cfg_t *c, uint32_t cycle);
 enum { PDX_CAMMODE_FULL, PDX_CAMMODE_PIP };
 
 /* livello di uscita in dB TEORICI rispetto al massimo (ampiezza PDX_RF_AMP_MAX = 0 dB, -6 dB = metà ampiezza):

@@ -21,6 +21,7 @@ typedef struct {
     const uint8_t *bg;                   /* immagine PDXIMG01 per PiP e immagine fissa */
     int cam_fps, cam_kbps;               /* 0 = automatico (kbit/s dal bitrate del TS) */
     bool ovl_full;                       /* sovrimpressione con QRZ e frequenza (altrimenti solo la fascia in basso) */
+    const char *telem;                   /* riga di telemetria (NULL = nessuna), preparata prima della TX */
     uint64_t freq_khz;                   /* frequenza finale in aria, per la sovrimpressione */
 } pdx_live_cfg_t;
 

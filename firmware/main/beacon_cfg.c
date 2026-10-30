@@ -14,6 +14,7 @@
 #include "live_tx.h"
 #include "media_store.h"
 #include "led_status.h"
+#include "chip_temp.h"
 
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
@@ -45,7 +46,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .version = PDX_CFG_VERSION, .auto_tx = 0, .freq_khz = 2375000, .amp = 200, .dci = 0, .dcq = 0,
         .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "IZ7PDX", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
-        .lo_khz = 0, .xvtr = PDX_XVTR_SUM,
+        .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
     };
 }
 
@@ -63,6 +64,19 @@ uint64_t pdx_cfg_final_khz(const pdx_cfg_t *c, uint32_t if_khz, bool *inverted)
     }
     if (inverted) *inverted = inv;
     return f;
+}
+
+const char *pdx_cfg_telemetry(const pdx_cfg_t *c, uint32_t cycle)
+{
+    if (!c->telem) return NULL;
+    static char s[48];
+    const float t = pdx_temp_read();
+    const uint32_t up = (uint32_t)(esp_timer_get_time() / 60000000);
+    char ts[12] = "TEMP --";
+    if (!isnan(t)) snprintf(ts, sizeof(ts), "TEMP %dC", (int)lroundf(t));
+    if (cycle) snprintf(s, sizeof(s), "%s  UP %uh%02um  CYCLE %u", ts, (unsigned)(up / 60), (unsigned)(up % 60), (unsigned)cycle);
+    else snprintf(s, sizeof(s), "%s  UP %uh%02um", ts, (unsigned)(up / 60), (unsigned)(up % 60));
+    return s;
 }
 
 const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz)
@@ -120,10 +134,11 @@ void pdx_cfg_print(const pdx_cfg_t *c)
                c->lo_khz / 1000.0, c->xvtr == PDX_XVTR_DIFF ? "|OL-IF|" : "OL+IF", fin / 1000.0,
                inv ? " (spettro invertito dal mixer: compensato)" : "");
     printf("CFG auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
-           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | QRZ %s\n",
+           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s\n",
            c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
-           c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s, c->callsign);
+           c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s,
+           c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign);
 }
 
 static bool parse_int(const char *s, long lo, long hi, long *out)
@@ -208,12 +223,22 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         const double f = strtod(value, &e);
         if (e == value || *e || f < 0.0 || f * 1000.0 > PDX_LO_MAX_KHZ) return "lo 0..100000 MHz (0 = nessun mixer)";
         c->lo_khz = (uint32_t)(f * 1000.0 + 0.5);
+    } else if (!strcasecmp(key, "telem")) {
+        if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->telem = 1;
+        else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->telem = 0;
+        else return "telem ON/OFF";
+    } else if (!strcasecmp(key, "led")) {
+        if (!strcasecmp(value, "normal")) c->led = PDX_LED_NORMAL;
+        else if (!strcasecmp(value, "min")) c->led = PDX_LED_MIN;
+        else if (!strcasecmp(value, "off")) c->led = PDX_LED_OFF;
+        else return "led NORMAL/MIN/OFF";
+        pdx_led_set_mode(c->led);
     } else if (!strcasecmp(key, "xvtr")) {
         if (!strcasecmp(value, "sum")) c->xvtr = PDX_XVTR_SUM;
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr";
+        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr led telem";
     }
     return NULL;
 }
@@ -238,6 +263,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
                          .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
                          .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
     pdx_rf_set_invert(inv);
+    lc.telem = pdx_cfg_telemetry(c, cycle);              /* letta qui, prima della TX */
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
     if (mono) {
         lc.video = PDX_LV_ES;

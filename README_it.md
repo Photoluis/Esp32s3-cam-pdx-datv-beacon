@@ -20,7 +20,8 @@ sono calcolati sull'ESP stesso.
 | Camera dal vivo (H.264 320x240), PiP, monoscopi personalizzati, monoscopio con dati in tempo reale | collaudato: MER 24–25 dB |
 | Beacon autonomo, configurazione da web (11 lingue) e da seriale, livello in dB, FEC dal menu | collaudato |
 | Uscita come IF verso un mixer esterno, frequenza finale in video e nella SDT | collaudato con OL fittizio; compensazione dello spettro invertito da provare con un mixer vero |
-| LED RGB di stato (colore proporzionale alla potenza) | collaudato |
+| LED RGB di stato (colore proporzionale alla potenza; normale, minimo, spento) | collaudato |
+| Telemetria in sovrimpressione (temperatura del chip, accensione, ciclo) | collaudato |
 
 ## Documentazione
 

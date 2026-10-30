@@ -10,6 +10,9 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "led_status.h"
+#include "chip_temp.h"
+#include <math.h>
 #include "media_store.h"
 #include "rf_s3.h"
 
@@ -56,11 +59,12 @@ static int cfg_json(char *b, size_t n)
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
-                    cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv);
+                    cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv,
+                    cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -88,11 +92,12 @@ static esp_err_t h_status(httpd_req_t *r)
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
              "\"media\":{\"es_std\":\"%s\",\"es_usr\":\"%s\",\"img_std\":\"%s\",\"img_usr\":\"%s\","
-             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d}",
+             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f}",
              fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, md[0], md[1], md[2], md[3],
              pdx_media_map(PDX_MEDIA_ES_USR, NULL) ? "true" : "false",
              pdx_media_map(PDX_MEDIA_IMG_USR, NULL) ? "true" : "false", (unsigned)PDX_ES_USR_SIZE,
-             (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX);
+             (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX,
+             isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read());
     return send_json(r, b);
 }
 

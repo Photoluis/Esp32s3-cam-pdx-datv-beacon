@@ -18,7 +18,9 @@
  *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
  *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec level amp dci dcq
- *        mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr); SAVE la scrive in NVS
+ *        mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr led); SAVE la scrive in NVS
+ *        led NORMAL|MIN|OFF = LED di stato normale, al minimo o spento (alimentazione a batteria)
+ *        telem ON|OFF = riga con temperatura del chip, tempo di accensione e ciclo nei modi dal vivo
  *        lo = oscillatore locale di un mixer esterno (MHz, 0 = nessuno), xvtr SUM|DIFF: la scheda trasmette sempre sulla IF
  *        (2300..2450 MHz); sovrimpressione, SDT e pagina web mostrano la frequenza finale
  *   BEACON                                   ciclo del beacon con la configurazione attuale, fino allo stop
@@ -56,6 +58,7 @@
 #include "cam_live.h"
 #include "media_store.h"
 #include "led_status.h"
+#include "chip_temp.h"
 #include "esp_rom_crc.h"
 #include <ctype.h>
 
@@ -222,7 +225,7 @@ static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_
     *lc = (pdx_live_cfg_t){.sr = 333000, .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
                            .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
-                           .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL)};
+                           .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0)};
     if (v == PDX_LV_IMG) lc->bg = usr_img;
     else lc->bg = cfg.pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
 }
@@ -292,6 +295,7 @@ static void handle(char *line)
         while (esp_timer_get_time() - t0 < 200000) {}
         const uint32_t c1 = esp_cpu_get_cycle_count();
         const int64_t t1 = esp_timer_get_time();
+        printf("TEMP chip %.1f C (sensore interno)\n", pdx_temp_read());
         printf("CPU %.3f MHz misurati (atteso 240)\n", (double)(c1 - c0) / (double)(t1 - t0));
         printf("RAM interna libera %u KB (blocco DMA max %u KB), PSRAM libera %u KB\n",
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >> 10),
@@ -539,13 +543,15 @@ void app_main(void)
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0));
     gpio_config_t boot_pin = {.pin_bit_mask = 1ull << BOOT_GPIO, .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     gpio_config(&boot_pin);
-    printf("\n=== Beacon DATV IZ7PDX %s ===\n", FW_VERSION);
+    printf("\n=== ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - %s ===\n", FW_VERSION);
     pdx_rf_init();
     printf("PHY pronta, LO %.3f Hz\n", pdx_rf_lo_hz());
     printf(pdx_cfg_load(&cfg) ? "configurazione caricata\n" : "nessuna configurazione salvata: valori predefiniti\n");
     pdx_cfg_print(&cfg);
     pdx_web_init(&cfg, FW_VERSION);
+    pdx_led_set_mode(cfg.led);
     pdx_led_init();
+    pdx_temp_init();
     char pending[128];
     if (take_pending(pending, sizeof(pending))) {
         printf("comando dopo il riavvio: %s\n", pending);

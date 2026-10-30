@@ -54,6 +54,7 @@ static void live_overlay(uint8_t *yuyv, int w, int h, void *ctx)
         snprintf(s, sizeof(s), "%.3f MHz  DVB-S2 %s", (double)L->cfg->freq_khz / 1000.0, L->cfg->fec);
         pdx_ovl_text(yuyv, w, h, 6, 40, s, 1);
     }
+    if (L->cfg->telem) pdx_ovl_text(yuyv, w, h, 6, L->cfg->ovl_full ? 60 : 4, L->cfg->telem, 1);
     static const char *const tag[] = {"", "CAM", "PIP", "IMG"};
     snprintf(s, sizeof(s), "%s %05u  T %02u:%02u", tag[L->cfg->video], (unsigned)L->cam_frames, (unsigned)(t / 60u),
              (unsigned)(t % 60u));

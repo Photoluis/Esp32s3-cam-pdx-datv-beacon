@@ -8,6 +8,8 @@
 
 static rmt_channel_handle_t chan;
 static rmt_encoder_handle_t enc;
+static int led_mode;
+static uint8_t last_rgb[3];
 
 void pdx_led_init(void)
 {
@@ -32,7 +34,18 @@ void pdx_led_init(void)
 
 void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
+    last_rgb[0] = r; last_rgb[1] = g; last_rgb[2] = b;
     if (!chan) return;
+    if (led_mode == PDX_LED_OFF) {
+        r = g = b = 0;
+    } else if (led_mode == PDX_LED_MIN) {               /* stessa tinta, canale più forte a 2 su 255 */
+        const int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        if (mx > 2) {
+            r = (uint8_t)((r * 2 + mx / 2) / mx);
+            g = (uint8_t)((g * 2 + mx / 2) / mx);
+            b = (uint8_t)((b * 2 + mx / 2) / mx);
+        }
+    }
     static uint8_t grb[3];
     grb[0] = g; grb[1] = r; grb[2] = b;
     const rmt_transmit_config_t tc = {.loop_count = 0};
@@ -41,6 +54,12 @@ void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b)
 }
 
 void pdx_led_idle(void) { pdx_led_rgb(0, 0, 10); }
+
+void pdx_led_set_mode(int mode)
+{
+    led_mode = mode;
+    pdx_led_rgb(last_rgb[0], last_rgb[1], last_rgb[2]);
+}
 
 void pdx_led_tx(double level_db)
 {
