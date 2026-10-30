@@ -13,6 +13,7 @@
 #include "nvs.h"
 #include "live_tx.h"
 #include "media_store.h"
+#include "led_status.h"
 
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
@@ -44,7 +45,31 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .version = PDX_CFG_VERSION, .auto_tx = 0, .freq_khz = 2375000, .amp = 200, .dci = 0, .dcq = 0,
         .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "IZ7PDX", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
+        .lo_khz = 0, .xvtr = PDX_XVTR_SUM,
     };
+}
+
+uint64_t pdx_cfg_final_khz(const pdx_cfg_t *c, uint32_t if_khz, bool *inverted)
+{
+    bool inv = false;
+    uint64_t f = if_khz;
+    if (c->lo_khz) {
+        if (c->xvtr == PDX_XVTR_DIFF) {
+            inv = c->lo_khz > if_khz;
+            f = inv ? (uint64_t)c->lo_khz - if_khz : (uint64_t)if_khz - c->lo_khz;
+        } else {
+            f = (uint64_t)c->lo_khz + if_khz;
+        }
+    }
+    if (inverted) *inverted = inv;
+    return f;
+}
+
+const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz)
+{
+    static char s[24];
+    snprintf(s, sizeof(s), "BEACON %.3f MHz", pdx_cfg_final_khz(c, if_khz, NULL) / 1000.0);
+    return s;
 }
 
 bool pdx_cfg_load(pdx_cfg_t *c)
@@ -56,13 +81,14 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     size_t len = sizeof(tmp);
     const esp_err_t e = nvs_get_blob(h, NVS_KEY, &tmp, &len);
     nvs_close(h);
-    const size_t v2_len = offsetof(pdx_cfg_t, mono_src);
     if (e != ESP_OK) return false;
-    /* versione 2: la struttura salvata comprende il riempimento finale (62 -> 64 byte); campi nuovi ai valori predefiniti */
-    if (len == ((v2_len + 3u) & ~(size_t)3u) && tmp.version == 2) {
+    /* versioni precedenti: la struttura salvata arriva fino ai campi di allora (con il riempimento finale), i campi
+     * nuovi prendono i valori predefiniti */
+    const size_t old_len = tmp.version == 2 ? offsetof(pdx_cfg_t, mono_src) : tmp.version == 3 ? offsetof(pdx_cfg_t, lo_khz) : 0;
+    if (old_len && len == ((old_len + 3u) & ~(size_t)3u)) {
         pdx_cfg_t d;
         pdx_cfg_defaults(&d);
-        memcpy((uint8_t *)&tmp + v2_len, (const uint8_t *)&d + v2_len, sizeof(tmp) - v2_len);
+        memcpy((uint8_t *)&tmp + old_len, (const uint8_t *)&d + old_len, sizeof(tmp) - old_len);
         tmp.version = PDX_CFG_VERSION;
     } else if (len != sizeof(tmp) || tmp.version != PDX_CFG_VERSION) {
         return false;
@@ -86,10 +112,16 @@ bool pdx_cfg_save(const pdx_cfg_t *c)
 
 void pdx_cfg_print(const pdx_cfg_t *c)
 {
-    static const char *const src[] = {"STD", "VIDEO", "IMAGE"};
+    static const char *const src[] = {"STD", "VIDEO", "IMAGE", "LIVE"};
+    bool inv;
+    const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
+    if (c->lo_khz)
+        printf("CFG transverter: IF %.3f MHz, OL %.3f MHz, finale %s = %.3f MHz%s\n", c->freq_khz / 1000.0,
+               c->lo_khz / 1000.0, c->xvtr == PDX_XVTR_DIFF ? "|OL-IF|" : "OL+IF", fin / 1000.0,
+               inv ? " (spettro invertito dal mixer: compensato)" : "");
     printf("CFG auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
            "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | QRZ %s\n",
-           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 3],
+           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
            c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s, c->callsign);
 }
@@ -151,7 +183,8 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         if (!strcasecmp(value, "std")) c->mono_src = PDX_MONO_STD;
         else if (!strcasecmp(value, "video")) c->mono_src = PDX_MONO_USR_VIDEO;
         else if (!strcasecmp(value, "image")) c->mono_src = PDX_MONO_USR_IMAGE;
-        else return "monosrc STD/VIDEO/IMAGE";
+        else if (!strcasecmp(value, "live")) c->mono_src = PDX_MONO_LIVE;
+        else return "monosrc STD/VIDEO/IMAGE/LIVE";
     } else if (!strcasecmp(key, "cammode")) {
         if (!strcasecmp(value, "full")) c->cam_mode = PDX_CAMMODE_FULL;
         else if (!strcasecmp(value, "pip")) c->cam_mode = PDX_CAMMODE_PIP;
@@ -170,8 +203,17 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         while (i < sizeof(ok) / sizeof(ok[0]) && strcmp(value, ok[i])) i++;
         if (i == sizeof(ok) / sizeof(ok[0])) return "fec 1/2 3/5 2/3 3/4 4/5 5/6 8/9 9/10";
         strcpy(c->fec, ok[i]);
+    } else if (!strcasecmp(key, "lo")) {                 /* oscillatore locale esterno in MHz, 0 = nessun mixer */
+        char *e;
+        const double f = strtod(value, &e);
+        if (e == value || *e || f < 0.0 || f * 1000.0 > PDX_LO_MAX_KHZ) return "lo 0..100000 MHz (0 = nessun mixer)";
+        c->lo_khz = (uint32_t)(f * 1000.0 + 0.5);
+    } else if (!strcasecmp(key, "xvtr")) {
+        if (!strcasecmp(value, "sum")) c->xvtr = PDX_XVTR_SUM;
+        else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
+        else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass";
+        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr";
     }
     return NULL;
 }
@@ -190,9 +232,12 @@ static bool wait_s(uint32_t s, pdx_rf_abort_fn abort_fn)
 /* un segmento del ciclo; restituisce false se la TX è stata fermata */
 static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_fn tx_abort, bool *sent)
 {
+    bool inv;
+    const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
     pdx_live_cfg_t lc = {.sr = 333000, .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
-                         .service = c->callsign, .provider = "IZ7PDX BEACON", .ovl_full = c->ovl != 0,
-                         .freq_khz = c->freq_khz, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
+                         .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
+                         .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
+    pdx_rf_set_invert(inv);
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
     if (mono) {
         lc.video = PDX_LV_ES;
@@ -203,6 +248,10 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
         } else if (c->mono_src == PDX_MONO_USR_IMAGE) {
             if (usr_img) { lc.video = PDX_LV_IMG; lc.bg = usr_img; }
             else printf("BEACON immagine personalizzata assente: monoscopio standard\n");
+        } else if (c->mono_src == PDX_MONO_LIVE) {        /* barre standard con i dati in sovrimpressione */
+            lc.video = PDX_LV_IMG;
+            lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
+            lc.ovl_full = true;
         }
     } else {
         lc.video = c->cam_mode == PDX_CAMMODE_PIP ? PDX_LV_PIP : PDX_LV_CAM;
@@ -213,9 +262,12 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     printf("BEACON ciclo %u: %s %.3f MHz SR 333 kS FEC %s livello %.1f dB per %u s\n", (unsigned)cycle,
            pdx_live_video_name(lc.video), c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp),
            (unsigned)(want / 1000u));
+    if (c->lo_khz) printf("BEACON frequenza finale dopo il mixer %.3f MHz%s\n", fin / 1000.0, inv ? " (spettro compensato)" : "");
     fflush(stdout);
     const char *why = NULL;
+    pdx_led_tx(pdx_amp_to_level(c->amp));
     const uint32_t ms = pdx_live_play(&lc, want, tx_abort, &why);
+    pdx_led_idle();
     if (why) {
         printf("BEACON ERR %s: segmento saltato\n", why);
         return true;

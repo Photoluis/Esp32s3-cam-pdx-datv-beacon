@@ -70,9 +70,6 @@ e con le potenze consentite dalla propria licenza e dal band plan**, con un filt
 
 ## Crediti
 
-- L'idea di usare il trasmettitore Wi-Fi come modulatore I/Q viene da
-  [ESP32-DATV-SA](https://github.com/barisdinc/ESP32-DATV-SA) (SP8ESA, per ESP32-C3). Questo progetto è scritto da zero
-  per l'ESP32-S3 e non contiene codice di ESP32-DATV-SA (usato solo come confronto durante lo sviluppo).
 - DVB-S2: ETSI EN 302 307-1 V1.4.1. Le tabelle LDPC sono estratte dalla norma e verificate (`tools/dvbs2/etsi_tables.py`).
 - Componenti Espressif: ESP-IDF, esp32-camera, esp_h264.
 

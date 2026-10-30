@@ -13,12 +13,14 @@
  *   SYMINFO                                  descrive il file di simboli nella partizione "symbols"
  *   PLAY <MHz> <liv> <secondi> [dcI dcQ]     trasmette in loop i simboli della partizione (SR dal file)
  *   CAMBENCH <w> <h> <fotogrammi> <kbps> <fps>  prova camera + H.264 software sul core 1 (nessuna RF)
- *   ESPLAY <MHz> <liv> <s> [fec] [short] [nopilots] [cam|pip|img|user]  TS generato sull'ESP: monoscopio standard,
+ *   ESPLAY <MHz> <liv> <s> [fec] [short] [nopilots] [cam|pip|img|live|user]  TS generato sull'ESP: monoscopio standard,
  *        camera, camera in PiP, immagine personalizzata, video personalizzato
  *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
  *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec level amp dci dcq
- *        mono monosrc cam cammode pipbg ovl pause wait call appass); SAVE la scrive in NVS
+ *        mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr); SAVE la scrive in NVS
+ *        lo = oscillatore locale di un mixer esterno (MHz, 0 = nessuno), xvtr SUM|DIFF: la scheda trasmette sempre sulla IF
+ *        (2300..2450 MHz); sovrimpressione, SDT e pagina web mostrano la frequenza finale
  *   BEACON                                   ciclo del beacon con la configurazione attuale, fino allo stop
  *   WIFI ON|OFF                              access point di configurazione "<QRZ>-BEACON", pagina http://192.168.4.1
  *        (acceso a TX ferma, spento durante ogni TX: la radio Wi-Fi fa da modulatore)
@@ -53,6 +55,7 @@
 #include "ts_mux.h"
 #include "cam_live.h"
 #include "media_store.h"
+#include "led_status.h"
 #include "esp_rom_crc.h"
 #include <ctype.h>
 
@@ -153,6 +156,7 @@ static void run_beacon(void)
     while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));   /* attende il rilascio di BOOT */
     discard_input();
     printf("BEACON fermo dopo %u cicli completi: modo configurazione\n", (unsigned)n);
+    pdx_led_idle();
     pdx_web_set_mode("configurazione");
     pdx_web_start();
 }
@@ -179,6 +183,13 @@ static bool tx_common(const char *f_arg, int amp, uint32_t secs, uint32_t *fkhz)
     pdx_web_set_mode("prova in TX");
     pdx_web_stop();                                 /* la radio serve al modulatore */
     if (!pdx_rf_tune(*fkhz)) { printf("ERR sintonia\n"); return false; }
+    bool inv;
+    const uint64_t fin = pdx_cfg_final_khz(&cfg, *fkhz, &inv);
+    pdx_rf_set_invert(inv);
+    pdx_led_tx(pdx_amp_to_level(amp));
+    if (cfg.lo_khz)
+        printf("TRANSVERTER OL %.3f MHz: frequenza finale %.3f MHz%s\n", cfg.lo_khz / 1000.0, fin / 1000.0,
+               inv ? " (spettro invertito dal mixer: compensato)" : "");
     printf("LIVELLO %.1f dB teorici (ampiezza %d/%d)\n", pdx_amp_to_level(amp), amp, PDX_RF_AMP_MAX);
     return true;
 }
@@ -199,6 +210,7 @@ static void tx_end_note(uint32_t ms, bool stats)
                (unsigned)st->period, (unsigned)st->samples, (unsigned)st->lag_max, (unsigned)st->late);
     }
     printf("TX OFF dopo %u ms\n", (unsigned)ms);
+    pdx_led_idle();
     pdx_web_set_mode("configurazione");
     pdx_web_start();
 }
@@ -208,8 +220,9 @@ static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_
 {
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
     *lc = (pdx_live_cfg_t){.sr = 333000, .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
-                           .service = cfg.callsign, .provider = "IZ7PDX BEACON", .video = v,
-                           .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0, .freq_khz = freq_khz};
+                           .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
+                           .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
+                           .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL)};
     if (v == PDX_LV_IMG) lc->bg = usr_img;
     else lc->bg = cfg.pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
 }
@@ -407,7 +420,7 @@ static void handle(char *line)
         if (e) printf("ERR %s\n", e);
 
     } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [modo] */
-        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|user]\n"); return; }
+        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|live|user]\n"); return; }
         pdx_live_cfg_t lc;
         live_cfg_from(&lc, PDX_LV_ES, 0, pdx_parse_amp(argv[2]), "3/4");
         for (int i = 4; i < argc; i++) {
@@ -416,12 +429,14 @@ static void handle(char *line)
             else if (!strcasecmp(argv[i], "cam")) lc.video = PDX_LV_CAM;
             else if (!strcasecmp(argv[i], "pip")) lc.video = PDX_LV_PIP;
             else if (!strcasecmp(argv[i], "img")) { lc.video = PDX_LV_IMG; lc.bg = pdx_media_map(PDX_MEDIA_IMG_USR, NULL); }
+            else if (!strcasecmp(argv[i], "live")) { lc.video = PDX_LV_IMG; lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL); lc.ovl_full = true; }
             else if (!strcasecmp(argv[i], "user")) lc.es = pdx_media_map(PDX_MEDIA_ES_USR, NULL);
             else lc.fec = argv[i];
         }
         const uint32_t secs = (uint32_t)atoi(argv[3]);
         if (!tx_common(argv[1], lc.amp, secs, &fkhz)) return;
-        lc.freq_khz = fkhz;
+        lc.freq_khz = pdx_cfg_final_khz(&cfg, fkhz, NULL);
+        lc.provider = pdx_cfg_provider(&cfg, fkhz);
         printf("TX ON ESPLAY %.3f MHz SR %u FEC %s %s %s, amp %d per %u s, video: %s\n", fkhz / 1000.0, (unsigned)lc.sr,
                lc.fec, lc.shortf ? "corti" : "normali", lc.pilots ? "pilot" : "senza pilot", lc.amp, (unsigned)secs,
                pdx_live_video_name(lc.video));
@@ -430,6 +445,17 @@ static void handle(char *line)
         const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);
         if (why) printf("ERR %s\n", why);
         tx_end_note(ms, true);
+
+    } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* scala dei colori del LED senza TX: da -30 a 0 dB */
+        for (int db = -30; db <= 0; db += 2) {
+            printf("LED %d dB\n", db);
+            fflush(stdout);
+            pdx_led_tx(db);
+            vTaskDelay(pdMS_TO_TICKS(450));
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        pdx_led_idle();
+        printf("OK LED di nuovo in configurazione (blu)\n");
 
     } else if (!strcasecmp(argv[0], "S2TEST")) {             /* codificatore DVB-S2 del firmware contro quello del PC */
         pdx_s2_selftest();
@@ -519,6 +545,7 @@ void app_main(void)
     printf(pdx_cfg_load(&cfg) ? "configurazione caricata\n" : "nessuna configurazione salvata: valori predefiniti\n");
     pdx_cfg_print(&cfg);
     pdx_web_init(&cfg, FW_VERSION);
+    pdx_led_init();
     char pending[128];
     if (take_pending(pending, sizeof(pending))) {
         printf("comando dopo il riavvio: %s\n", pending);

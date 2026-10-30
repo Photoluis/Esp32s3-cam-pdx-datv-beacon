@@ -31,6 +31,8 @@ uint32_t pdx_rf_tx_tone(int amp, int32_t offset_hz, uint32_t fs_hz, uint32_t ms,
 #define PDX_RF_SR_MIN 33000u
 #define PDX_RF_SR_MAX 1000000u
 uint32_t pdx_rf_qpsk_sps(uint32_t sr);
+/* spettro invertito nelle TX QPSK successive (compensa un mixer esterno con oscillatore locale sopra la IF) */
+void pdx_rf_set_invert(bool on);
 uint32_t pdx_rf_tx_qpsk(int amp, uint32_t sr, int dci, int dcq, uint32_t ms, pdx_rf_abort_fn abort_fn);
 
 /* buffer circolare di simboli (4 per byte), riempito da un altro core; size potenza di 2, w e r contatori liberi */

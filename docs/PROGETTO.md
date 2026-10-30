@@ -110,13 +110,13 @@ Il codificatore prepara anche file di simboli già pronti da trasmettere.
 
 ### 2. Il trasmettitore dentro il Wi-Fi
 
-L'idea di usare il trasmettitore Wi-Fi di un ESP32 come modulatore I/Q per la DATV è stata dimostrata dal progetto
-ESP32-DATV-SA di **SP8ESA**, a cui va il riconoscimento dell'intuizione. Il firmware di questo progetto è scritto in modo
-indipendente: dall'analisi delle funzioni di prova RF di Espressif sono stati individuati i registri che permettono di
-tenere acceso il trasmettitore, sintonizzarlo e scrivere direttamente nel suo DAC I/Q. In sequenza:
+L'idea guida del progetto è usare il trasmettitore Wi-Fi dell'ESP32-S3 come modulatore I/Q: una sfida tecnica che si è
+rivelata vincente. Dall'analisi delle funzioni di prova RF di Espressif sono stati individuati i registri che permettono
+di tenere acceso il trasmettitore, sintonizzarlo e scrivere direttamente nel suo DAC I/Q. In sequenza:
 
 - **portante e tono** con il quarzo della scheda (scarto di circa 1 ppm), verificati con lo SPECTRUM HD del Pd4Pdx;
-- **QPSK con filtro RRC 0,35** a 333 kS/s, banda occupata di circa 450 kHz;
+- **QPSK con filtro RRC 0,35** a 333 kS/s, banda occupata di circa 450 kHz (465 kHz misurati, spalle circa 36 dB sotto
+  il canale);
 - **prima ricezione DVB-S2**: il Portsdown 4 aggancia il segnale con **MER 24,6 dB** e mostra il monoscopio H.265 con il
   suo audio, trasmesso da un file di simboli calcolato sul PC.
 
@@ -178,7 +178,10 @@ a 17 dB, spalle nello spettro). Il livello predefinito del beacon è −7,6 dB.
 | Camera in PiP sul monoscopio | 9 fps, 0 fotogrammi persi, cambio programma automatico |
 | Immagine personalizzata caricata da iPhone | MER 24+ dB |
 | Linearità | lineare fino a circa −6 dB, compressione sopra −3,5 dB |
+| Spettro a 333 kS (SPECTRUM HD del Pd4Pdx) | banda stimata 465 kHz, spalle circa 36 dB sotto il canale |
 | Tempo di codifica di un PLFRAME (QPSK 3/4) | circa 9 ms (il frame dura circa 100 ms) |
+
+![Spettro del beacon a 2375,000 MHz, 333 kS (29/10/2026, SPECTRUM HD del Pd4Pdx): banda stimata 465 kHz](img/spettro_2375_333k.jpg)
 
 ## Immagini
 
@@ -208,8 +211,6 @@ docs/              documentazione, prove, immagini
 ## Riconoscimenti e licenze
 
 - **ETSI EN 302 307-1 V1.4.1** — la norma DVB-S2 è solo citata e non è inclusa nel repository.
-- **SP8ESA, ESP32-DATV-SA** — per la dimostrazione che il trasmettitore Wi-Fi dell'ESP32 può fare da modulatore DATV.
-  Nessuna parte del suo codice è inclusa in questo progetto.
 - **Espressif** — ESP-IDF, esp32-camera ed esp_h264 (licenza Apache 2.0; esp_h264 contiene OpenH264, licenza BSD).
 - **BATC** — Portsdown 4 e Minitiouner, usati per tutte le prove di ricezione (Pd4Pdx Edition di IZ7PDX).
 - **FFmpeg / x265** — usati sul PC per preparare monoscopi e video.

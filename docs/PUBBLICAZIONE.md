@@ -34,8 +34,7 @@ Proposta del 30/10/2026. Le date sono indicative: ogni fase si chiude solo con l
 
 - Intestazione GPL-3.0 con il nome dell'autore in ogni sorgente; file `LICENSE` già presente.
 - File `THIRD_PARTY.md`: ESP-IDF, esp32-camera ed esp_h264 (Apache 2.0, con OpenH264 BSD), FFmpeg/x265 usati solo sul PC.
-- La norma ETSI resta solo citata con il collegamento (il PDF non va ridistribuito); il progetto SP8ESA è riconosciuto come
-  ispirazione, senza codice incluso (la sua licenza non permette la ridistribuzione).
+- La norma ETSI resta solo citata con il collegamento (il PDF non va ridistribuito).
 - Avvertenze ben visibili: solo radioamatori con licenza, banda e potenza consentite, filtro obbligatorio.
 
 ## 4. Pacchetti per chi non compila (6/11 – 7/11)

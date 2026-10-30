@@ -262,7 +262,11 @@ static float rrc(float t, float b)  /* t in simboli */
 }
 
 /* tabella per un ramo: il bit m della storia è il simbolo di m periodi fa (bit 0 = il più recente) */
-static void qpsk_build(uint32_t sps, int amp, int dc, int16_t (*t)[256])
+/* sign = -1 sul ramo Q: complesso coniugato, cioè spettro invertito (mixer esterno con oscillatore sopra la IF) */
+static bool iq_invert;
+void pdx_rf_set_invert(bool on) { iq_invert = on; }
+
+static void qpsk_build(uint32_t sps, int amp, int dc, int sign, int16_t (*t)[256])
 {
     float h[QPSK_SPAN * QPSK_SPS_MAX];
     for (uint32_t n = 0; n < QPSK_SPAN * sps; n++) h[n] = rrc(((float)n - (float)(QPSK_SPAN / 2u * sps)) / (float)sps, QPSK_BETA);
@@ -277,7 +281,7 @@ static void qpsk_build(uint32_t sps, int amp, int dc, int16_t (*t)[256])
         for (uint32_t hist = 0; hist < 256; hist++) {
             float v = 0;
             for (uint32_t m = 0; m < QPSK_SPAN; m++) v += ((hist >> m) & 1u ? 1.0f : -1.0f) * h[m * sps + j];
-            int x = (int)lroundf(g * v) + dc;
+            int x = (int)lroundf(sign * g * v) + dc;
             t[j][hist] = (int16_t)(x > 511 ? 511 : x < -511 ? -511 : x);
         }
 }
@@ -325,8 +329,8 @@ uint32_t pdx_rf_tx_qpsk(int amp, uint32_t sr, int dci, int dcq, uint32_t ms, pdx
     uint32_t owner0;
     if (amp > PDX_RF_AMP_MAX) amp = PDX_RF_AMP_MAX;
     const uint32_t sps = pdx_rf_qpsk_sps(sr), fs = sr * sps;
-    qpsk_build(sps, amp, dci, qpsk_t);
-    qpsk_build(sps, amp, dcq, qpsk_tq);
+    qpsk_build(sps, amp, dci, 1, qpsk_t);
+    qpsk_build(sps, amp, dcq, iq_invert ? -1 : 1, qpsk_tq);
     last_stats = (pdx_rf_stats_t){.fs_hz = fs, .period = CPU_HZ / fs};
     const uint32_t nsym = (uint32_t)((uint64_t)ms * sr / 1000u);
     tx_begin(&owner0);
@@ -392,8 +396,8 @@ uint32_t pdx_rf_tx_qpsk_ring(int amp, uint32_t sr, int dci, int dcq, uint32_t ms
     uint32_t owner0;
     if (amp > PDX_RF_AMP_MAX) amp = PDX_RF_AMP_MAX;
     const uint32_t sps = pdx_rf_qpsk_sps(sr), fs = sr * sps;
-    qpsk_build(sps, amp, dci, qpsk_t);
-    qpsk_build(sps, amp, dcq, qpsk_tq);
+    qpsk_build(sps, amp, dci, 1, qpsk_t);
+    qpsk_build(sps, amp, dcq, iq_invert ? -1 : 1, qpsk_tq);
     last_stats = (pdx_rf_stats_t){.fs_hz = fs, .period = CPU_HZ / fs};
     for (int k = 0; k < 8; k++) pdx_diag_late[k] = 0;
     const uint32_t nsym = (uint32_t)((uint64_t)ms * sr / 1000u) & ~3u;

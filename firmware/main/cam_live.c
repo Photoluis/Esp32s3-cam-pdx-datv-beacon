@@ -17,7 +17,6 @@
 
 static bool cam_ok;
 static esp_h264_enc_handle_t enc;
-static int enc_fps, enc_kbps;
 static uint8_t *work;                     /* immagine composta (PiP, immagine fissa) */
 
 const char *pdx_cam_live_init(int fps, int kbps, bool camera)
@@ -43,23 +42,21 @@ const char *pdx_cam_live_init(int fps, int kbps, bool camera)
         cam_ok = true;
     }
     if (!work && !(work = heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM))) return "memoria";
-    if (enc && (fps != enc_fps || kbps != enc_kbps)) {
+    /* encoder nuovo a ogni segmento: il primo fotogramma è un IDR con SPS/PPS, così il ricevitore decodifica subito
+     * (con l'encoder riutilizzato il segmento partiva a metà GOP) */
+    if (enc) {
         esp_h264_enc_close(enc);
         esp_h264_enc_del(enc);
         enc = NULL;
     }
-    if (!enc) {
-        esp_h264_enc_cfg_sw_t cfg = {
-            .pic_type = ESP_H264_RAW_FMT_YUYV, .gop = (uint8_t)(fps * 2), .fps = (uint8_t)fps,
-            .res = {.width = PDX_CAM_W, .height = PDX_CAM_H},
-            .rc = {.bitrate = (uint32_t)kbps * 1000u, .qp_min = 22, .qp_max = 44},
-        };
-        if (esp_h264_enc_sw_new(&cfg, &enc) != ESP_H264_ERR_OK || esp_h264_enc_open(enc) != ESP_H264_ERR_OK) {
-            enc = NULL;
-            return "encoder H.264";
-        }
-        enc_fps = fps;
-        enc_kbps = kbps;
+    esp_h264_enc_cfg_sw_t cfg = {
+        .pic_type = ESP_H264_RAW_FMT_YUYV, .gop = (uint8_t)(fps * 2), .fps = (uint8_t)fps,
+        .res = {.width = PDX_CAM_W, .height = PDX_CAM_H},
+        .rc = {.bitrate = (uint32_t)kbps * 1000u, .qp_min = 26, .qp_max = 44},
+    };
+    if (esp_h264_enc_sw_new(&cfg, &enc) != ESP_H264_ERR_OK || esp_h264_enc_open(enc) != ESP_H264_ERR_OK) {
+        enc = NULL;
+        return "encoder H.264";
     }
     return NULL;
 }

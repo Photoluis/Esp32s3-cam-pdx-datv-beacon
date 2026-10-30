@@ -81,7 +81,7 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
     video_k = int(bitrate * 0.80 / 1000) - audio_k            # margine per PSI, PCR e riempimento CBR
     font = "C\\:/Windows/Fonts/arialbd.ttf"
     fec_txt = getattr(a, "fec_label", a.fec)
-    lines = [a.callsign, f"BEACON DATV 13cm  {a.label_freq}",
+    lines = [a.callsign, f"BEACON DATV  {a.label_freq}" if a.label_freq else "BEACON DATV",
              f"DVB-S2 QPSK {fec_txt + '  ' if fec_txt else ''}SR {a.sr // 1000} kS  H.265"]
     text = ",".join(
         f"drawtext=fontfile='{font}':text='{t}':fontcolor=white:fontsize={56 if k == 0 else 26}:box=1:boxcolor=black@0.6"

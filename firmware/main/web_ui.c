@@ -50,14 +50,17 @@ bool pdx_web_running(void) { return server != NULL; }
 
 static int cfg_json(char *b, size_t n)
 {
-    static const char *const src[] = {"std", "video", "image"};
+    static const char *const src[] = {"std", "video", "image", "live"};
+    bool inv;
+    const uint64_t fin = pdx_cfg_final_khz(cfg, cfg->freq_khz, &inv);
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\"}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
-                    src[cfg->mono_src % 3], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
-                    cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign);
+                    src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
+                    cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
+                    cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
