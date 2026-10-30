@@ -46,11 +46,12 @@ small{color:var(--muted)}
 <div class="g">
 <label>Frequenza (MHz)<input name="freq" inputmode="decimal" id="freq"></label>
 <label>FEC (DVB-S2 QPSK, 333 kS)<select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
-<label><span>Livello (1–<span id="ampmax">480</span>)</span><input name="amp" inputmode="numeric" id="amp"></label>
+<label>Livello (dB, 0 = massimo)<input name="level" id="level" type="number" step="0.1" min="-40" max="0" inputmode="decimal"></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
 <label>Correzione DC I / Q<span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
 </div>
-<small>Banda ammessa <span id="band">2300–2450</span> MHz: usare solo le frequenze consentite dalla propria licenza.</small>
+<small>Livello in dB teorici rispetto al massimo del modulatore (-6 dB = metà ampiezza), da -40 a 0: la potenza reale
+in dBm dipende dalla scheda e verrà tarata con una misura.<br>Banda ammessa <span id="band">2300–2450</span> MHz: usare solo le frequenze consentite dalla propria licenza.</small>
 </section>
 
 <section><h2>Ciclo del beacon</h2>
@@ -109,10 +110,10 @@ Per fermare il beacon premere il pulsante BOOT della scheda (o un tasto sulla se
 <script>
 const $=id=>document.getElementById(id);
 function msg(t,c){const m=$('msg');m.textContent=t;m.className=c||''}
-function fill(c){for(const k of['freq','fec','amp','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl}
+function fill(c){for(const k of['freq','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl}
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
-  $('fw').textContent=s.fw;$('mode').textContent=s.mode;$('ampmax').textContent=s.ampmax;$('band').textContent=s.fmin+'–'+s.fmax;
+  $('fw').textContent=s.fw;$('mode').textContent=s.mode;$('band').textContent=s.fmin+'–'+s.fmax;
   for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=s.media[k];$('esmax').textContent=(s.media.es_max/1048576).toFixed(0);
   const u=s.uptime;$('up').textContent=Math.floor(u/3600)+' h '+Math.floor(u%3600/60)+' min';
   $('st').textContent='collegato';$('st').className='st ok';

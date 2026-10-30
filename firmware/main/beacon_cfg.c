@@ -2,6 +2,7 @@
  * Configurazione del beacon (NVS, spazio "beacon", chiave "cfg") e ciclo autonomo. */
 #include "beacon_cfg.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,26 @@
 
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
+
+int pdx_level_to_amp(double db)
+{
+    if (db > 0.0 || db < PDX_LEVEL_MIN_DB) return -1;
+    const int a = (int)(PDX_RF_AMP_MAX * pow(10.0, db / 20.0) + 0.5);
+    return a < 1 ? 1 : a;
+}
+
+double pdx_amp_to_level(int amp) { return 20.0 * log10((double)amp / PDX_RF_AMP_MAX); }
+
+int pdx_parse_amp(const char *s)
+{
+    char *e;
+    const double v = strtod(s, &e);
+    if (e == s) return -1;
+    const bool db = !strcasecmp(e, "db");
+    if (*e && !db) return -1;
+    if (db || v <= 0.0) return pdx_level_to_amp(v);
+    return v >= 1.0 && v <= PDX_RF_AMP_MAX && v == (int)v ? (int)v : -1;
+}
 
 void pdx_cfg_defaults(pdx_cfg_t *c)
 {
@@ -66,9 +87,9 @@ bool pdx_cfg_save(const pdx_cfg_t *c)
 void pdx_cfg_print(const pdx_cfg_t *c)
 {
     static const char *const src[] = {"STD", "VIDEO", "IMAGE"};
-    printf("CFG auto %s | freq %.3f MHz | FEC %s | amp %d | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
+    printf("CFG auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
            "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | QRZ %s\n",
-           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, c->amp, c->dci, c->dcq, src[c->mono_src % 3],
+           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 3],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
            c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s, c->callsign);
 }
@@ -95,9 +116,13 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         const uint32_t khz = (uint32_t)(f * 1000.0 + 0.5);
         if (e == value || *e || khz < PDX_RF_FMIN_KHZ || khz > PDX_RF_FMAX_KHZ) return "freq 2300.000..2450.000 MHz";
         c->freq_khz = khz;
-    } else if (!strcasecmp(key, "amp")) {
-        if (!parse_int(value, 1, PDX_RF_AMP_MAX, &v)) return "amp 1..480";
-        c->amp = (int16_t)v;
+    } else if (!strcasecmp(key, "amp") || !strcasecmp(key, "level")) {
+        /* level: dB teorici (0 = massimo, fino a -40); amp: ampiezza 1..480 o anche dB con il suffisso "dB" */
+        char tmp[16];
+        snprintf(tmp, sizeof(tmp), "%s%s", value, !strcasecmp(key, "level") && !strpbrk(value, "dD") ? "dB" : "");
+        const int a = pdx_parse_amp(tmp);
+        if (a < 1) return "livello da -40 a 0 dB (0 = massimo)";
+        c->amp = (int16_t)a;
     } else if (!strcasecmp(key, "dci") || !strcasecmp(key, "dcq")) {
         if (!parse_int(value, -100, 100, &v)) return "dc -100..100";
         if (!strcasecmp(key, "dci")) c->dci = (int16_t)v; else c->dcq = (int16_t)v;
@@ -146,7 +171,7 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         if (i == sizeof(ok) / sizeof(ok[0])) return "fec 1/2 3/5 2/3 3/4 4/5 5/6 8/9 9/10";
         strcpy(c->fec, ok[i]);
     } else {
-        return "chiavi: auto freq fec amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass";
+        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass";
     }
     return NULL;
 }
@@ -185,8 +210,9 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     }
     if (!pdx_rf_tune(c->freq_khz)) { printf("BEACON ERR sintonia\n"); return false; }
     const uint32_t want = (uint32_t)(mono ? c->mono_s : c->cam_s) * 1000u;
-    printf("BEACON ciclo %u: %s %.3f MHz SR 333 kS FEC %s amp %d per %u s\n", (unsigned)cycle,
-           pdx_live_video_name(lc.video), c->freq_khz / 1000.0, c->fec, c->amp, (unsigned)(want / 1000u));
+    printf("BEACON ciclo %u: %s %.3f MHz SR 333 kS FEC %s livello %.1f dB per %u s\n", (unsigned)cycle,
+           pdx_live_video_name(lc.video), c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp),
+           (unsigned)(want / 1000u));
     fflush(stdout);
     const char *why = NULL;
     const uint32_t ms = pdx_live_play(&lc, want, tx_abort, &why);

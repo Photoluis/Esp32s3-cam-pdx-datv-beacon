@@ -27,3 +27,6 @@ __pycache__/
 # sistema
 .DS_Store
 Thumbs.db
+
+# video e immagini personali (non nel repository)
+media/

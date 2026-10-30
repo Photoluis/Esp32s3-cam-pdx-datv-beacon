@@ -4,19 +4,20 @@
  *
  * Comandi sulla UART0 (porta TTL, 115200), uno per riga:
  *   INFO
- *   CW   <MHz> <amp> <secondi>              portante sull'LO
- *   TONE <MHz> <offset_kHz> <amp> <secondi> [fs_kHz]  tono a LO + offset (si vedono anche LO residuo e immagine);
+ *   (<liv> = livello in dB teorici, 0 = massimo, es. -7.6dB; oppure ampiezza 1..480)
+ *   CW   <MHz> <liv> <secondi>              portante sull'LO
+ *   TONE <MHz> <offset_kHz> <liv> <secondi> [fs_kHz]  tono a LO + offset (si vedono anche LO residuo e immagine);
  *        campionamento 1000/2000/4000 kHz (predefinito 2000); a fine TX i ritardi delle scritture nel DAC
  *   TONE ... <fs_kHz> <mode>   diagnosi: mode bit 0 = TX riaccesa ogni secondo, bit 1 = senza misura dei ritardi
- *   QPSK <MHz> <SR_kS> <amp> <secondi> [dcI dcQ]  simboli casuali (PRBS), RRC roll-off 0.35, correzione DC opzionale
+ *   QPSK <MHz> <SR_kS> <liv> <secondi> [dcI dcQ]  simboli casuali (PRBS), RRC roll-off 0.35, correzione DC opzionale
  *   SYMINFO                                  descrive il file di simboli nella partizione "symbols"
- *   PLAY <MHz> <amp> <secondi> [dcI dcQ]     trasmette in loop i simboli della partizione (SR dal file)
+ *   PLAY <MHz> <liv> <secondi> [dcI dcQ]     trasmette in loop i simboli della partizione (SR dal file)
  *   CAMBENCH <w> <h> <fotogrammi> <kbps> <fps>  prova camera + H.264 software sul core 1 (nessuna RF)
- *   ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|user]  TS generato sull'ESP: monoscopio standard,
+ *   ESPLAY <MHz> <liv> <s> [fec] [short] [nopilots] [cam|pip|img|user]  TS generato sull'ESP: monoscopio standard,
  *        camera, camera in PiP, immagine personalizzata, video personalizzato
  *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
- *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec amp dci dcq
+ *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec level amp dci dcq
  *        mono monosrc cam cammode pipbg ovl pause wait call appass); SAVE la scrive in NVS
  *   BEACON                                   ciclo del beacon con la configurazione attuale, fino allo stop
  *   WIFI ON|OFF                              access point di configurazione "<QRZ>-BEACON", pagina http://192.168.4.1
@@ -169,12 +170,16 @@ static bool parse_mhz(const char *s, uint32_t *khz)
 static bool tx_common(const char *f_arg, int amp, uint32_t secs, uint32_t *fkhz)
 {
     if (!parse_mhz(f_arg, fkhz)) { printf("ERR frequenza fuori da 2300..2450 MHz\n"); return false; }
-    if (amp < 1 || amp > PDX_RF_AMP_MAX) { printf("ERR amp 1..%d\n", PDX_RF_AMP_MAX); return false; }
+    if (amp < 1 || amp > PDX_RF_AMP_MAX) {
+        printf("ERR livello: dB da -40 a 0 (es. -7.6dB) oppure ampiezza 1..%d\n", PDX_RF_AMP_MAX);
+        return false;
+    }
     if (secs < 1 || secs > TX_MAX_S) { printf("ERR secondi 1..%u\n", (unsigned)TX_MAX_S); return false; }
     if (pdx_web_radio_dirty()) reboot_and_run(current_line);
     pdx_web_set_mode("prova in TX");
     pdx_web_stop();                                 /* la radio serve al modulatore */
     if (!pdx_rf_tune(*fkhz)) { printf("ERR sintonia\n"); return false; }
+    printf("LIVELLO %.1f dB teorici (ampiezza %d/%d)\n", pdx_amp_to_level(amp), amp, PDX_RF_AMP_MAX);
     return true;
 }
 
@@ -282,7 +287,7 @@ static void handle(char *line)
 
     } else if (!strcasecmp(argv[0], "CW")) {                 /* CW <MHz> <amp> <s> */
         if (argc != 4) { printf("ERR argomenti\n"); return; }
-        const int amp = atoi(argv[2]);
+        const int amp = pdx_parse_amp(argv[2]);
         const uint32_t secs = (uint32_t)atoi(argv[3]);
         if (!tx_common(argv[1], amp, secs, &fkhz)) return;
         printf("TX ON CW %.3f MHz (LO %.3f Hz) amp %d per %u s\n", fkhz / 1000.0, pdx_rf_lo_hz(), amp, (unsigned)secs);
@@ -292,7 +297,7 @@ static void handle(char *line)
     } else if (!strcasecmp(argv[0], "TONE")) {               /* TONE <MHz> <off_kHz> <amp> <s> [fs_kHz [mode]] */
         if (argc < 5 || argc > 7) { printf("ERR argomenti\n"); return; }
         const int32_t off_hz = (int32_t)(atof(argv[2]) * 1000.0);
-        const int amp = atoi(argv[3]);
+        const int amp = pdx_parse_amp(argv[3]);
         const uint32_t secs = (uint32_t)atoi(argv[4]);
         const uint32_t fs_hz = argc >= 6 ? (uint32_t)atoi(argv[5]) * 1000u : 2000000u;
         const uint32_t mode = argc == 7 ? (uint32_t)atoi(argv[6]) & 3u : 0u;
@@ -308,7 +313,7 @@ static void handle(char *line)
     } else if (!strcasecmp(argv[0], "QPSK")) {               /* QPSK <MHz> <SR_kS> <amp> <s> [dcI dcQ] */
         if (argc != 5 && argc != 7) { printf("ERR argomenti\n"); return; }
         const uint32_t sr = (uint32_t)(atof(argv[2]) * 1000.0 + 0.5);
-        const int amp = atoi(argv[3]);
+        const int amp = pdx_parse_amp(argv[3]);
         const uint32_t secs = (uint32_t)atoi(argv[4]);
         const int dci = argc == 7 ? atoi(argv[5]) : 0, dcq = argc == 7 ? atoi(argv[6]) : 0;
         if (sr < PDX_RF_SR_MIN || sr > PDX_RF_SR_MAX) {
@@ -332,7 +337,7 @@ static void handle(char *line)
         printf("OK simboli \"%s\": SR %u S/s, %u simboli = %.2f s di loop\n", h.label, (unsigned)h.sr, (unsigned)h.nsym,
                (double)h.nsym / h.sr);
         if (!play) return;
-        const int amp = atoi(argv[2]);
+        const int amp = pdx_parse_amp(argv[2]);
         const uint32_t secs = (uint32_t)atoi(argv[3]);
         const int dci = argc == 6 ? atoi(argv[4]) : 0, dcq = argc == 6 ? atoi(argv[5]) : 0;
         if (dci < -100 || dci > 100 || dcq < -100 || dcq > 100) { printf("ERR dc -100..100\n"); return; }
@@ -404,7 +409,7 @@ static void handle(char *line)
     } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [modo] */
         if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|user]\n"); return; }
         pdx_live_cfg_t lc;
-        live_cfg_from(&lc, PDX_LV_ES, 0, atoi(argv[2]), "3/4");
+        live_cfg_from(&lc, PDX_LV_ES, 0, pdx_parse_amp(argv[2]), "3/4");
         for (int i = 4; i < argc; i++) {
             if (!strcasecmp(argv[i], "short")) lc.shortf = true;
             else if (!strcasecmp(argv[i], "nopilots")) lc.pilots = false;

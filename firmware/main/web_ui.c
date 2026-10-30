@@ -52,10 +52,10 @@ static int cfg_json(char *b, size_t n)
 {
     static const char *const src[] = {"std", "video", "image"};
     return snprintf(b, n,
-                    "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
+                    "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
                     "\"wait\":%u,\"call\":\"%s\"}",
-                    cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, cfg->dci, cfg->dcq, cfg->mono_s,
+                    cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 3], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign);
 }
