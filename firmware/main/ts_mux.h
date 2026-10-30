@@ -44,6 +44,9 @@ typedef struct {
 typedef struct {
     double rate;                         /* bit/s del TS */
     uint8_t vtype;                       /* stream_type del video nel PMT: 0x24 H.265, 0x1B H.264 */
+    uint16_t vpid;                       /* PID del video: diverso per codec, così il ricevitore crea un decoder nuovo */
+    uint8_t pmt_ver;                     /* versione del PMT: cambia a ogni segmento */
+    uint64_t t0_90k;                     /* tempo del primo pacchetto: prosegue da un segmento all'altro */
     bool vqueue;                         /* video dalla coda (camera) invece che dal file ES */
     pdx_vq_entry_t vq[PDX_VQ_LEN];
     volatile uint32_t vq_r, vq_w;

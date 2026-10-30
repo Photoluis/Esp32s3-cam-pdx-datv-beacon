@@ -32,7 +32,7 @@ def main():
             text = line.decode("utf-8", "replace").strip()
             if text:
                 print(time.strftime("%H:%M:%S"), text, flush=True)
-            if text.startswith(("TX OFF", "ERR")):
+            if text.startswith(("TX OFF", "ERR", "BEACON fermo")):
                 p.close()
                 return
         if stop_file and not stopped and os.path.exists(stop_file):

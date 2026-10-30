@@ -1,14 +1,19 @@
 /* Beacon DATV 13 cm - IZ7PDX
  * Multiplexer MPEG-TS (vedi ts_mux.h). Il tempo del multiplexer è il numero di pacchetti emessi: a bitrate costante il
- * pacchetto n esce a n * 1504 / rate secondi, quindi PCR e PTS seguono il ritmo reale dei simboli trasmessi. */
+ * pacchetto n esce a n * 1504 / rate secondi, quindi PCR e PTS seguono il ritmo reale dei simboli trasmessi.
+ * Tra un segmento e l'altro del beacon (monoscopio, camera, PiP) il tempo prosegue (più la pausa reale), il PMT cambia
+ * versione e il video cambia PID secondo il codec: per il ricevitore è un solo flusso in cui cambia il programma, non un
+ * flusso che riparte da zero (con PCR all'indietro e PMT "uguale" il lettore del Portsdown 4 restava congelato, 30/10). */
 #include "ts_mux.h"
 
 #include <string.h>
+#include "esp_timer.h"
 
 #define PID_PAT  0x0000
 #define PID_SDT  0x0011
 #define PID_PMT  0x1000
-#define PID_V    0x0100
+#define PID_V    0x0100                  /* H.265 */
+#define PID_V264 0x0104                  /* H.264 */
 #define PID_A    0x0101
 #define PID_PCR  0x0102
 #define LEAD_90K 90000u                  /* i PES partono fino a 1 s prima del loro tempo di decodifica */
@@ -24,7 +29,18 @@ static uint32_t crc32_mpeg(const uint8_t *p, uint32_t n)
     return crc;
 }
 
-static uint64_t now_90k(const pdx_mux_t *m) { return (uint64_t)((double)m->n * 1504.0 * 90000.0 / m->rate); }
+/* fine dell'ultimo segmento: tempo del multiplexer e istante reale, per far proseguire il tempo nel segmento seguente */
+static struct {
+    bool valid;
+    uint64_t t90k;
+    int64_t us;
+    uint8_t pmt_ver;
+} last;
+
+static uint64_t now_90k(const pdx_mux_t *m)
+{
+    return m->t0_90k + (uint64_t)((double)m->n * 1504.0 * 90000.0 / m->rate);
+}
 uint64_t pdx_mux_now_90k(const pdx_mux_t *m) { return now_90k(m); }
 bool pdx_mux_vq_space(const pdx_mux_t *m) { return m->vq_w - m->vq_r < PDX_VQ_LEN; }
 pdx_vq_entry_t *pdx_mux_vq_slot(pdx_mux_t *m) { return &m->vq[m->vq_w % PDX_VQ_LEN]; }
@@ -62,9 +78,9 @@ static void make_pat(pdx_mux_t *m, uint8_t *p)
 
 static void make_pmt(pdx_mux_t *m, uint8_t *p)
 {
-    const uint8_t s[] = {0x02, 0xB0, 23, 0x00, 0x01, 0xC1, 0x00, 0x00,
+    const uint8_t s[] = {0x02, 0xB0, 23, 0x00, 0x01, (uint8_t)(0xC1 | (m->pmt_ver & 31) << 1), 0x00, 0x00,
                          0xE0 | (PID_PCR >> 8), PID_PCR & 0xFF, 0xF0, 0x00,      /* PCR_PID, nessun descrittore */
-                         m->vtype, 0xE0 | (PID_V >> 8), PID_V & 0xFF, 0xF0, 0x00,
+                         m->vtype, 0xE0 | (m->vpid >> 8), m->vpid & 0xFF, 0xF0, 0x00,
                          (uint8_t)m->es->atype, 0xE0 | (PID_A >> 8), PID_A & 0xFF, 0xF0, 0x00};
     psi_packet(p, PID_PMT, &m->cc[1], s, sizeof(s));
 }
@@ -93,7 +109,9 @@ static void make_pcr(pdx_mux_t *m, uint8_t *p)
 {
     uint8_t dummy = 0;
     ts_header(p, PID_PCR, false, 2, &dummy);              /* solo adaptation field */
-    const uint64_t pcr27 = (uint64_t)((double)m->n * 1504.0 * 27e6 / m->rate);
+    const uint64_t pcr27 = m->t0_90k * 300u + (uint64_t)((double)m->n * 1504.0 * 27e6 / m->rate);
+    last.t90k = pcr27 / 300u;
+    last.us = esp_timer_get_time();
     const uint64_t base = (pcr27 / 300u) & 0x1FFFFFFFFull, ext = pcr27 % 300u;
     p[4] = 183;
     p[5] = 0x10;
@@ -123,9 +141,10 @@ static uint64_t unit_pts(const pdx_mux_t *m, const pdx_es_cursor_t *c, const pdx
     return m->pts_base + (uint64_t)c->loop * m->es->loop_ticks + u->pts;
 }
 
-static void start_pes_raw(pdx_mux_t *m, pdx_es_cursor_t *c, uint64_t pts, const uint8_t *data, uint32_t len, bool video)
+static void start_pes_raw(pdx_mux_t *m, pdx_es_cursor_t *c, uint64_t pts_abs, const uint8_t *data, uint32_t len,
+                          bool video)
 {
-    pts &= 0x1FFFFFFFFull;
+    const uint64_t pts = pts_abs & 0x1FFFFFFFFull;          /* 33 bit nel PES; i confronti usano il tempo intero */
     uint8_t *h = c->ph;
     h[0] = 0; h[1] = 0; h[2] = 1;
     h[3] = video ? 0xE0 : 0xC0;
@@ -145,7 +164,7 @@ static void start_pes_raw(pdx_mux_t *m, pdx_es_cursor_t *c, uint64_t pts, const 
     c->pl = data;
     c->pl_rem = len;
     c->active = true;
-    if (pts < (now_90k(m) & 0x1FFFFFFFFull)) m->late++;
+    if (pts_abs < now_90k(m)) m->late++;
 }
 
 static void start_pes(pdx_mux_t *m, pdx_es_cursor_t *c, const pdx_es_unit_t *u, bool video)
@@ -198,7 +217,7 @@ static bool try_queue(pdx_mux_t *m, uint8_t *p)
         start_pes_raw(m, c, e->pts, e->buf, e->len, true);
         m->vq_sending = true;
     }
-    pes_packet(m, c, PID_V, &m->cc[3], p);
+    pes_packet(m, c, m->vpid, &m->cc[3], p);
     if (!c->active && m->vq_sending) {                     /* PES finito: il posto torna libero */
         m->vq_sending = false;
         m->vq_r++;
@@ -224,7 +243,7 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
         m->next_pcr = m->n + (uint64_t)(0.04 * pkt_per_s);
     } else if (try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt)) {
         m->stats_audio++;
-    } else if (!m->vqueue && try_stream(m, &m->v, 0, PID_V, &m->cc[3], pkt)) {
+    } else if (!m->vqueue && try_stream(m, &m->v, 0, m->vpid, &m->cc[3], pkt)) {
         m->stats_video++;
     } else if (m->vqueue && try_queue(m, pkt)) {
         m->stats_video++;
@@ -247,7 +266,16 @@ const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, cons
     m->rate = rate;
     m->vqueue = vqueue;
     m->vtype = vqueue ? 0x1B : (uint8_t)h->vtype;
-    m->pts_base = DELAY_90K;
+    m->vpid = m->vtype == 0x24 ? PID_V : PID_V264;
+    if (last.valid) {                                      /* prosegue dal segmento precedente, più la pausa reale */
+        m->t0_90k = last.t90k + (uint64_t)((esp_timer_get_time() - last.us) * 9 / 100) + 9000u;
+        m->pmt_ver = (uint8_t)((last.pmt_ver + 1) & 31);
+    }
+    last.valid = true;
+    last.t90k = m->t0_90k;
+    last.us = esp_timer_get_time();
+    last.pmt_ver = m->pmt_ver;
+    m->pts_base = m->t0_90k + DELAY_90K;
     strncpy(m->service, service, sizeof(m->service) - 1);
     strncpy(m->provider, provider, sizeof(m->provider) - 1);
     const pdx_es_unit_t *units = (const pdx_es_unit_t *)(es_file + sizeof(*h));
