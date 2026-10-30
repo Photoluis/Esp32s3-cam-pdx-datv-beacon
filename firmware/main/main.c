@@ -1,5 +1,5 @@
 /* Beacon DATV 13 cm - IZ7PDX
- * RF0007: modulatore I/Q dell'ESP32-S3 (CW, tono, QPSK RRC, simboli DVB-S2 dalla flash) beacon autonomo con configurazione in NVS e
+ * RF0008: modulatore I/Q dell'ESP32-S3 (CW, tono, QPSK RRC, simboli DVB-S2 dalla flash) beacon autonomo con configurazione in NVS e
  * interfaccia web.
  *
  * Comandi sulla UART0 (porta TTL, 115200), uno per riga:
@@ -12,8 +12,12 @@
  *   SYMINFO                                  descrive il file di simboli nella partizione "symbols"
  *   PLAY <MHz> <amp> <secondi> [dcI dcQ]     trasmette in loop i simboli della partizione (SR dal file)
  *   CAMBENCH <w> <h> <fotogrammi> <kbps> <fps>  prova camera + H.264 software sul core 1 (nessuna RF)
- *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq amp dci dcq mono cam
- *        pause wait call); SAVE la scrive in NVS
+ *   ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|user]  TS generato sull'ESP: monoscopio standard,
+ *        camera, camera in PiP, immagine personalizzata, video personalizzato
+ *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
+ *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
+ *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec amp dci dcq
+ *        mono monosrc cam cammode pipbg ovl pause wait call appass); SAVE la scrive in NVS
  *   BEACON                                   ciclo del beacon con la configurazione attuale, fino allo stop
  *   WIFI ON|OFF                              access point di configurazione "<QRZ>-BEACON", pagina http://192.168.4.1
  *        (acceso a TX ferma, spento durante ogni TX: la radio Wi-Fi fa da modulatore)
@@ -47,10 +51,13 @@
 #include "dvbs2_enc.h"
 #include "ts_mux.h"
 #include "cam_live.h"
+#include "media_store.h"
+#include "esp_rom_crc.h"
+#include <ctype.h>
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
-#define FW_VERSION "RF0007"
+#define FW_VERSION "RF0008"
 #define TX_MAX_S   300u
 
 #define BOOT_GPIO 0                 /* pulsante BOOT della scheda: premuto = livello basso */
@@ -129,15 +136,6 @@ static bool stop_requested(void)
     return uart_has_byte() || gpio_get_level(BOOT_GPIO) == 0;
 }
 
-/* informazioni del file di simboli per la pagina web */
-static void refresh_symbols(void)
-{
-    pdx_sym_header_t h;
-    const char *why = "";
-    if (pdx_sym_open(&h, &why)) pdx_web_set_symbols(true, h.label, h.sr, h.nsym);
-    else pdx_web_set_symbols(false, why, 0, 0);
-}
-
 static void run_beacon(void)
 {
     if (pdx_web_radio_dirty()) reboot_and_run("BEACON");
@@ -198,6 +196,60 @@ static void tx_end_note(uint32_t ms, bool stats)
     printf("TX OFF dopo %u ms\n", (unsigned)ms);
     pdx_web_set_mode("configurazione");
     pdx_web_start();
+}
+
+/* parametri del TS dal vivo dalla configurazione (sfondo PiP e sovrimpressione come nel beacon) */
+static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_khz, int amp, const char *fec)
+{
+    const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
+    *lc = (pdx_live_cfg_t){.sr = 333000, .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
+                           .service = cfg.callsign, .provider = "IZ7PDX BEACON", .video = v,
+                           .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0, .freq_khz = freq_khz};
+    if (v == PDX_LV_IMG) lc->bg = usr_img;
+    else lc->bg = cfg.pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
+}
+
+/* MEDIAW VIDEO|IMAGE <byte> <crc32>: il PC (tools/upload_media.py) manda blocchi binari da 2048 byte e aspetta "ACK <n>"
+ * dopo ciascuno; il firmware scrive solo nelle aree personalizzate e alla fine verifica CRC e contenuto */
+static void media_upload(int argc, char **argv)
+{
+    if (argc != 4 || (strcasecmp(argv[1], "VIDEO") && strcasecmp(argv[1], "IMAGE"))) {
+        printf("ERR MEDIAW VIDEO|IMAGE <byte> <crc32 esadecimale>\n");
+        return;
+    }
+    const pdx_media_t m = !strcasecmp(argv[1], "VIDEO") ? PDX_MEDIA_ES_USR : PDX_MEDIA_IMG_USR;
+    const uint32_t total = (uint32_t)strtoul(argv[2], NULL, 10), crc_want = (uint32_t)strtoul(argv[3], NULL, 16);
+    const char *e = pdx_media_write_begin(m, total);
+    if (e) { printf("ERR %s\n", e); return; }
+    static uint8_t blk[2048];
+    uint32_t pos = 0, crc = 0;
+    printf("READY\n");
+    fflush(stdout);
+    while (pos < total && !e) {
+        const uint32_t want = total - pos < sizeof(blk) ? total - pos : sizeof(blk);
+        uint32_t got = 0;
+        while (got < want) {
+            const int k = uart_read_bytes(UART_NUM_0, blk + got, want - got, pdMS_TO_TICKS(5000));
+            if (k <= 0) { e = "tempo scaduto in ricezione"; break; }
+            got += (uint32_t)k;
+        }
+        if (e) break;
+        crc = esp_rom_crc32_le(crc, blk, want);
+        e = pdx_media_write(blk, want);
+        pos += want;
+        if (!e) { printf("ACK %u\n", (unsigned)pos); fflush(stdout); }
+    }
+    if (!e && crc != crc_want) e = "CRC del file diverso";
+    const char *e2 = pdx_media_write_end();
+    if (!e) e = e2;
+    if (e) {
+        pdx_media_erase_user(m);                     /* un file a metà non deve restare in flash */
+        printf("ERR %s\n", e);
+        return;
+    }
+    char d[96];
+    pdx_media_describe(m, d, sizeof(d));
+    printf("OK caricato: %s\n", d);
 }
 
 static void handle(char *line)
@@ -295,28 +347,36 @@ static void handle(char *line)
                (unsigned)pdx_rf_last_stats()->underruns, (unsigned)(pdx_rf_rx_frames() - rx0));
         tx_end_note(ms, true);
 
-    } else if (!strcasecmp(argv[0], "ESINFO")) {
-        char label[40];
-        uint32_t units;
-        double loop_s;
-        if (pdx_live_es_info(label, sizeof(label), &units, &loop_s))
-            printf("OK ES \"%s\": %u unita, loop %.2f s\n", label, (unsigned)units, loop_s);
-        else
-            printf("ERR nessun file ES a 0x%x nella partizione symbols\n", (unsigned)PDX_ES_OFFSET);
+    } else if (!strcasecmp(argv[0], "MEDIA")) {               /* immagini e video in flash */
+        static const char *const names[] = {"monoscopio standard   ", "video personalizzato  ", "sfondo PiP standard   ",
+                                            "immagine personalizzata"};
+        for (int m = 0; m < 4; m++) {
+            char d[96];
+            pdx_media_describe((pdx_media_t)m, d, sizeof(d));
+            printf("MEDIA %s %s\n", names[m], d);
+        }
 
-    } else if (!strcasecmp(argv[0], "TSDUMP")) {              /* TSDUMP <pacchetti>: TS del multiplexer in esadecimale */
+    } else if (!strcasecmp(argv[0], "MEDIAERASE")) {          /* MEDIAERASE VIDEO|IMAGE: solo le aree personalizzate */
+        const pdx_media_t m = argc == 2 && !strcasecmp(argv[1], "VIDEO") ? PDX_MEDIA_ES_USR
+                            : argc == 2 && !strcasecmp(argv[1], "IMAGE") ? PDX_MEDIA_IMG_USR : PDX_MEDIA_ES_STD;
+        const char *e = m == PDX_MEDIA_ES_STD ? "MEDIAERASE VIDEO|IMAGE (il monoscopio standard non si cancella)"
+                                              : pdx_media_erase_user(m);
+        printf(e ? "ERR %s\n" : "OK cancellato%s\n", e ? e : "");
+
+    } else if (!strcasecmp(argv[0], "MEDIAW")) {              /* MEDIAW VIDEO|IMAGE <byte> <crc32>: caricamento binario */
+        media_upload(argc, argv);
+
+    } else if (!strcasecmp(argv[0], "TSDUMP")) {              /* TSDUMP <pacchetti>: TS del monoscopio standard */
         if (argc != 2) { printf("ERR TSDUMP <pacchetti>\n"); return; }
         const uint32_t n = (uint32_t)atoi(argv[1]);
-        char label[40];
-        uint32_t units;
-        double loop_s;
-        if (!pdx_live_es_info(label, sizeof(label), &units, &loop_s)) { printf("ERR file ES\n"); return; }
+        const char *why;
+        const uint8_t *es = pdx_media_map(PDX_MEDIA_ES_STD, &why);
+        if (!es) { printf("ERR monoscopio standard: %s\n", why); return; }
         pdx_s2_t s2;
         if (pdx_s2_init(&s2, "3/4", false, true)) { printf("ERR s2\n"); return; }
         const double rate = pdx_s2_ts_bitrate(&s2, 333000);
         pdx_s2_free(&s2);
         static pdx_mux_t mux;
-        const uint8_t *es = pdx_live_es_data();
         const char *e = pdx_mux_init(&mux, es, rate, cfg.callsign, "IZ7PDX BEACON", false);
         if (e) { printf("ERR %s\n", e); return; }
         printf("TSDUMP %u pacchetti a %.0f bit/s\n", (unsigned)n, rate);
@@ -330,31 +390,36 @@ static void handle(char *line)
         printf("TSDUMP fine: video %u audio %u nulli %u, PES in ritardo %u\n", (unsigned)mux.stats_video,
                (unsigned)mux.stats_audio, (unsigned)mux.stats_null, (unsigned)mux.late);
 
-    } else if (!strcasecmp(argv[0], "CAMDUMP")) {             /* CAMDUMP <pacchetti>: TS del modo camera, senza RF */
-        if (argc != 2) { printf("ERR CAMDUMP <pacchetti>\n"); return; }
-        pdx_live_cfg_t lc = {.sr = 333000, .fec = "3/4", .pilots = true, .service = cfg.callsign,
-                             .provider = "IZ7PDX BEACON", .camera = true, .cam_fps = 6, .cam_kbps = 250,
-                             .freq_khz = cfg.freq_khz};
-        printf("CAMDUMP %u pacchetti\n", (unsigned)atoi(argv[1]));
-        const char *e = pdx_live_cam_dump(&lc, (uint32_t)atoi(argv[1]));
+    } else if (!strcasecmp(argv[0], "CAMDUMP") || !strcasecmp(argv[0], "PIPDUMP") || !strcasecmp(argv[0], "IMGDUMP")) {
+        /* <modo>DUMP <pacchetti>: TS di un modo dal vivo con la configurazione attuale, senza RF */
+        if (argc != 2) { printf("ERR %s <pacchetti>\n", argv[0]); return; }
+        pdx_live_cfg_t lc;
+        const pdx_live_video_t v = toupper((unsigned char)argv[0][0]) == 'C' ? PDX_LV_CAM
+                                 : toupper((unsigned char)argv[0][0]) == 'P' ? PDX_LV_PIP : PDX_LV_IMG;
+        live_cfg_from(&lc, v, cfg.freq_khz, cfg.amp, cfg.fec);
+        printf("%s %u pacchetti\n", argv[0], (unsigned)atoi(argv[1]));
+        const char *e = pdx_live_dump(&lc, (uint32_t)atoi(argv[1]));
         if (e) printf("ERR %s\n", e);
 
-    } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam] */
-        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam]\n"); return; }
-        pdx_live_cfg_t lc = {.sr = 333000, .fec = "3/4", .shortf = false, .pilots = true, .amp = atoi(argv[2]),
-                             .service = cfg.callsign, .provider = "IZ7PDX BEACON", .cam_fps = 6, .cam_kbps = 250};
+    } else if (!strcasecmp(argv[0], "ESPLAY")) {              /* ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [modo] */
+        if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|user]\n"); return; }
+        pdx_live_cfg_t lc;
+        live_cfg_from(&lc, PDX_LV_ES, 0, atoi(argv[2]), "3/4");
         for (int i = 4; i < argc; i++) {
             if (!strcasecmp(argv[i], "short")) lc.shortf = true;
             else if (!strcasecmp(argv[i], "nopilots")) lc.pilots = false;
-            else if (!strcasecmp(argv[i], "cam")) lc.camera = true;
+            else if (!strcasecmp(argv[i], "cam")) lc.video = PDX_LV_CAM;
+            else if (!strcasecmp(argv[i], "pip")) lc.video = PDX_LV_PIP;
+            else if (!strcasecmp(argv[i], "img")) { lc.video = PDX_LV_IMG; lc.bg = pdx_media_map(PDX_MEDIA_IMG_USR, NULL); }
+            else if (!strcasecmp(argv[i], "user")) lc.es = pdx_media_map(PDX_MEDIA_ES_USR, NULL);
             else lc.fec = argv[i];
         }
         const uint32_t secs = (uint32_t)atoi(argv[3]);
         if (!tx_common(argv[1], lc.amp, secs, &fkhz)) return;
         lc.freq_khz = fkhz;
-        printf("TX ON ESPLAY %.3f MHz SR %u FEC %s %s %s, amp %d per %u s\n", fkhz / 1000.0, (unsigned)lc.sr, lc.fec,
-               lc.shortf ? "corti" : "normali", lc.pilots ? "pilot" : "senza pilot", lc.amp, (unsigned)secs);
-        if (lc.camera) printf("    video dalla camera: H.264 %dx%d, %d fps, %d kbit/s\n", PDX_CAM_W, PDX_CAM_H, lc.cam_fps, lc.cam_kbps);
+        printf("TX ON ESPLAY %.3f MHz SR %u FEC %s %s %s, amp %d per %u s, video: %s\n", fkhz / 1000.0, (unsigned)lc.sr,
+               lc.fec, lc.shortf ? "corti" : "normali", lc.pilots ? "pilot" : "senza pilot", lc.amp, (unsigned)secs,
+               pdx_live_video_name(lc.video));
         tx_start_note();
         const char *why;
         const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);
@@ -449,7 +514,6 @@ void app_main(void)
     printf(pdx_cfg_load(&cfg) ? "configurazione caricata\n" : "nessuna configurazione salvata: valori predefiniti\n");
     pdx_cfg_print(&cfg);
     pdx_web_init(&cfg, FW_VERSION);
-    refresh_symbols();
     char pending[128];
     if (take_pending(pending, sizeof(pending))) {
         printf("comando dopo il riavvio: %s\n", pending);

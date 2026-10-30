@@ -12,7 +12,6 @@ void pdx_web_stop(void);                   /* spegne server e access point e rim
 bool pdx_web_running(void);
 
 void pdx_web_set_mode(const char *mode);   /* testo di stato mostrato nella pagina */
-void pdx_web_set_symbols(bool ok, const char *label, uint32_t sr, uint32_t nsym);
 
 bool pdx_web_take_start_request(void);     /* true una volta dopo "AVVIA BEACON" dalla pagina */
 bool pdx_web_seen_client(void);            /* true se la pagina è stata aperta dall'ultimo avvio del server */

@@ -16,8 +16,8 @@ section{background:var(--card);border:1px solid var(--line);border-radius:10px;p
 h2{font-size:14px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
-input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font-size:16px;width:100%}
-input:focus{outline:none;border-color:var(--acc)}
+input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font-size:16px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
 .chk{flex-direction:row;align-items:center;gap:10px;font-size:15px;color:var(--text)}
 .chk input{width:22px;height:22px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}.kv b{color:var(--muted);font-weight:500}
@@ -38,7 +38,6 @@ small{color:var(--muted)}
 <div class="kv">
 <b>Firmware</b><span id="fw">–</span>
 <b>Modo</b><span id="mode">–</span>
-<b>Monoscopio</b><span id="sym">–</span>
 <b>Acceso da</b><span id="up">–</span>
 </div></section>
 
@@ -46,6 +45,7 @@ small{color:var(--muted)}
 <section><h2>Trasmissione</h2>
 <div class="g">
 <label>Frequenza (MHz)<input name="freq" inputmode="decimal" id="freq"></label>
+<label>FEC (DVB-S2 QPSK, 333 kS)<select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
 <label>Livello (1–<span id="ampmax">480</span>)<input name="amp" inputmode="numeric" id="amp"></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
 <label>Correzione DC I / Q<span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
@@ -55,12 +55,17 @@ small{color:var(--muted)}
 
 <section><h2>Ciclo del beacon</h2>
 <div class="g">
-<label>Monoscopio (s)<input name="mono" id="mono" inputmode="numeric"></label>
-<label>Camera dal vivo (s)<input name="cam" id="cam" inputmode="numeric"></label>
+<label>Monoscopio (s, 0 = saltato)<input name="mono" id="mono" inputmode="numeric"></label>
+<label>Monoscopio da trasmettere<select name="monosrc" id="monosrc"><option value="std">standard</option><option value="video">video personalizzato</option><option value="image">immagine personalizzata</option></select></label>
+<label>Camera dal vivo (s, 0 = saltata)<input name="cam" id="cam" inputmode="numeric"></label>
+<label>Camera<select name="cammode" id="cammode"><option value="pip">nel monoscopio (PiP)</option><option value="full">a pieno schermo</option></select></label>
+<label>Sfondo del PiP<select name="pipbg" id="pipbg"><option value="std">barre standard</option><option value="image">immagine personalizzata</option></select></label>
 <label>Pausa senza TX (s)<input name="pause" id="pause" inputmode="numeric"></label>
 <label>Attesa all'accensione (s)<input name="wait" id="wait" inputmode="numeric"></label>
 </div>
-<small>La camera dal vivo non è ancora disponibile: per ora il tempo impostato viene saltato.</small>
+<small>Solo monoscopio: camera a 0 s. Solo camera: monoscopio a 0 s. Camera e immagini personalizzate vanno in H.264 320x240,
+il monoscopio standard e i video personalizzati come sono stati preparati (H.265 640x360).</small>
+<p><label class="chk"><input type="checkbox" id="ovl"> QRZ e frequenza in sovrimpressione (camera, PiP, immagine)</label></p>
 <p><label class="chk"><input type="checkbox" id="auto"> Partenza automatica all'accensione (AUTO TX)</label></p>
 </section>
 
@@ -80,20 +85,40 @@ small{color:var(--muted)}
 <p><small>Durante la trasmissione la radio Wi-Fi fa da modulatore DATV e questa pagina non è raggiungibile.
 Per fermare il beacon premere il pulsante BOOT della scheda (o un tasto sulla seriale).</small></p>
 </form>
+
+<section><h2>Monoscopi</h2>
+<div class="kv">
+<b>Standard</b><span id="m_es_std">–</span>
+<b>Sfondo PiP</b><span id="m_img_std">–</span>
+<b>Video pers.</b><span id="m_es_usr">–</span>
+<b>Immagine pers.</b><span id="m_img_usr">–</span>
+</div>
+<small>Il monoscopio standard e lo sfondo del PiP sono protetti: si possono solo affiancare con quelli personalizzati.</small>
+<h2 style="margin-top:14px">Immagine personalizzata (dal telefono o dal PC)</h2>
+<input type="file" id="imgfile" accept="image/*">
+<canvas id="prev" width="320" height="240" style="width:100%;max-width:320px;margin:8px 0;border:1px solid var(--line);display:none"></canvas>
+<div class="btns"><button type="button" id="imgup" disabled>Carica immagine</button><button type="button" class="sec" id="imgdel">Cancella immagine</button></div>
+<small>L'immagine viene ritagliata a 4:3 e ridotta a 320x240 qui nel browser, poi trasmessa in H.264 come monoscopio fisso o come sfondo del PiP.</small>
+<h2 style="margin-top:14px">Video personalizzato (preparato sul PC)</h2>
+<input type="file" id="esfile" accept=".bin">
+<div class="btns" style="margin-top:8px"><button type="button" id="esup" disabled>Carica video</button><button type="button" class="sec" id="esdel">Cancella video</button></div>
+<small>File <b>.bin</b> creato con <code>tools/make_es.py --video mio.mp4</code> (oppure <code>--image</code>): istruzioni in docs/MONOSCOPIO.md. Massimo <span id="esmax">3</span> MB.</small>
+<div id="umsg" style="min-height:20px;font-size:14px;margin-top:8px"></div>
+</section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 function msg(t,c){const m=$('msg');m.textContent=t;m.className=c||''}
-function fill(c){for(const k of['freq','amp','dci','dcq','mono','cam','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto}
+function fill(c){for(const k of['freq','fec','amp','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl}
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
   $('fw').textContent=s.fw;$('mode').textContent=s.mode;$('ampmax').textContent=s.ampmax;$('band').textContent=s.fmin+'–'+s.fmax;
-  $('sym').textContent=s.sym.ok?(s.sym.label+' · '+(s.sym.sr/1000)+' kS · loop '+s.sym.secs.toFixed(1)+' s'):'nessun file di simboli';
+  for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=s.media[k];$('esmax').textContent=(s.media.es_max/1048576).toFixed(0);
   const u=s.uptime;$('up').textContent=Math.floor(u/3600)+' h '+Math.floor(u%3600/60)+' min';
   $('st').textContent='collegato';$('st').className='st ok';
   if(full)fill(s.cfg);
  }catch(e){$('st').textContent='non raggiungibile';$('st').className='st bad'}}
-function body(){const d=new URLSearchParams(new FormData($('f')));d.set('auto',$('auto').checked?'on':'off');return d}
+function body(){const d=new URLSearchParams(new FormData($('f')));d.set('auto',$('auto').checked?'on':'off');d.set('ovl',$('ovl').checked?'on':'off');return d}
 async function post(u,b){const r=await fetch(u,{method:'POST',body:b});return r.json()}
 async function apply(){const j=await post('/api/set',body());$('appass').value='';fill(j.cfg);
  if(j.ok)msg('Valori applicati (non ancora salvati).','ok');else msg('Errori: '+j.errors.join('; '),'bad');return j.ok}
@@ -103,6 +128,35 @@ $('def').onclick=async()=>{const j=await post('/api/defaults','');await status(t
 $('reload').onclick=()=>status(true).then(()=>msg('',''));
 $('start').onclick=async()=>{if(!confirm('Avviare il beacon con la configurazione applicata? Il Wi-Fi si spegnerà.'))return;
  if(!await apply())return;const j=await post('/api/start','');msg(j.msg,'warn');$('st').textContent='beacon in TX';$('st').className='st warn'};
+// ---- monoscopi personalizzati
+function umsg(t,c){const m=$('umsg');m.textContent=t;m.className=c||''}
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(a){let c=0xFFFFFFFF;for(let i=0;i<a.length;i++)c=CRC[(c^a[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
+let imgBlob=null;
+$('imgfile').onchange=async()=>{const f=$('imgfile').files[0];if(!f)return;
+ const im=await createImageBitmap(f);const cv=$('prev'),g=cv.getContext('2d');
+ // ritaglio centrale 4:3 ("cover"), poi RGB -> YUYV (BT.601, livelli TV)
+ const r=Math.max(320/im.width,240/im.height),w=320/r,h=240/r;g.drawImage(im,(im.width-w)/2,(im.height-h)/2,w,h,0,0,320,240);
+ cv.style.display='block';const px=g.getImageData(0,0,320,240).data;
+ const n=320*240*2,buf=new Uint8Array(64+n),dv=new DataView(buf.buffer);let o=64;
+ const Y=(r,g,b)=>16+(65.738*r+129.057*g+25.064*b)/256;
+ for(let i=0;i<320*240*4;i+=8){const R=(px[i]+px[i+4])/2,G=(px[i+1]+px[i+5])/2,B=(px[i+2]+px[i+6])/2;
+  buf[o++]=Y(px[i],px[i+1],px[i+2]);buf[o++]=128+(-37.945*R-74.494*G+112.439*B)/256;
+  buf[o++]=Y(px[i+4],px[i+5],px[i+6]);buf[o++]=128+(112.439*R-94.154*G-18.285*B)/256}
+ 'PDXIMG01'.split('').forEach((ch,k)=>buf[k]=ch.charCodeAt(0));
+ dv.setUint16(8,320,true);dv.setUint16(10,240,true);dv.setUint32(12,1,true);dv.setUint32(16,n,true);
+ dv.setUint32(20,crc32(buf.subarray(64)),true);
+ const lab=f.name.replace(/\.[^.]*$/,'').replace(/[^ -~]/g,'_').slice(0,35);for(let k=0;k<lab.length;k++)buf[24+k]=lab.charCodeAt(k);
+ imgBlob=buf;$('imgup').disabled=false;umsg('Anteprima pronta: '+lab,'')};
+async function upload(kind,data,btn){btn.disabled=true;umsg('Caricamento in corso…','warn');
+ try{const r=await fetch('/api/upload?kind='+kind,{method:'POST',body:data});const j=await r.json();umsg(j.msg,j.ok?'ok':'bad')}
+ catch(e){umsg('Caricamento interrotto','bad')}btn.disabled=false;status(false)}
+$('imgup').onclick=()=>imgBlob&&upload('image',imgBlob,$('imgup'));
+$('esfile').onchange=()=>{$('esup').disabled=!$('esfile').files[0]};
+$('esup').onclick=()=>{const f=$('esfile').files[0];if(f)upload('video',f,$('esup'))};
+async function erase(kind){if(!confirm('Cancellare il file personalizzato? Quello standard resta.'))return;
+ const j=await post('/api/erase?kind='+kind,'');umsg(j.msg,j.ok?'ok':'bad');status(false)}
+$('imgdel').onclick=()=>erase('image');$('esdel').onclick=()=>erase('video');
 status(true);setInterval(()=>status(false),5000);
 </script>
 </body>

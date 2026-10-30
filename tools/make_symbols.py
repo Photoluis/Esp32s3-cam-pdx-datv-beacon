@@ -80,16 +80,24 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
     audio_k = 32
     video_k = int(bitrate * 0.80 / 1000) - audio_k            # margine per PSI, PCR e riempimento CBR
     font = "C\\:/Windows/Fonts/arialbd.ttf"
-    lines = [a.callsign, f"BEACON DATV 13cm  {a.label_freq}", f"DVB-S2 QPSK {a.fec}  SR {a.sr // 1000} kS  H.265"]
+    fec_txt = getattr(a, "fec_label", a.fec)
+    lines = [a.callsign, f"BEACON DATV 13cm  {a.label_freq}",
+             f"DVB-S2 QPSK {fec_txt + '  ' if fec_txt else ''}SR {a.sr // 1000} kS  H.265"]
     text = ",".join(
         f"drawtext=fontfile='{font}':text='{t}':fontcolor=white:fontsize={56 if k == 0 else 26}:box=1:boxcolor=black@0.6"
         f":boxborderw=8:x=(w-text_w)/2:y={40 if k == 0 else (200 if loop_s else 250) + 36 * (k - 1)}"
         for k, t in enumerate(lines))
-    if a.image:
+    if getattr(a, "no_text", False):
+        text = "null"
+    fit = "scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25"
+    if getattr(a, "video", None):
+        vin = ["-stream_loop", "-1", "-i", a.video]          # ripetuto se più corto del loop
+    elif a.image:
         vin = ["-loop", "1", "-framerate", "25", "-i", a.image]
     else:
         vin = ["-f", "lavfi", "-i", "smptehdbars=size=640x360:rate=25"]
-    if loop_s:
+        fit = "scale=640:360"
+    if loop_s and not getattr(a, "no_band", False):
         # fascia in basso: scala del loop (tacca ogni secondo), cursore di avanzamento e barra a scanner disegnati con
         # overlay, che ricalcola la posizione a ogni fotogramma (n = numero del fotogramma; drawbox la calcola una volta)
         nfr = int(round(loop_s * 25))
@@ -98,12 +106,12 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
         band.append(f"drawtext=fontfile='{font}':text='FRAME %{{eif\\:n\\:d\\:3}}/{nfr}   "
                     "T %{eif\\:n/25\\:d}.%{eif\\:mod(n\\,25)*4\\:d\\:2} s':fontcolor=white:fontsize=18:x=640-text_w-8:y=333")
         vf = (f"color=c=yellow:s=20x28:r=25[sc];color=c=0x36c2ff:s=6x14:r=25[pg];"
-              f"[0:v]scale=640:360,format=yuv420p,{text},{','.join(band)}[b];"
+              f"[0:v]{fit},format=yuv420p,{text},{','.join(band)}[b];"
               f"[b][sc]overlay=x='10+330*(1-abs(1-2*mod(n,{keyint})/{keyint}))':y=328:shortest=1[c];"
               f"[c][pg]overlay=x='7+n*620/{nfr}':y=303:shortest=1,format=yuv420p[v]")
         vargs = ["-filter_complex", vf, "-map", "[v]", "-map", "1:a"]
     else:
-        vargs = ["-vf", f"scale=640:360,format=yuv420p,{text}"]
+        vargs = ["-filter_complex", f"[0:v]{fit},format=yuv420p,{text}[v]", "-map", "[v]", "-map", "1:a"]
     cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *vin,
            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000",
            "-t", f"{duration:.3f}",

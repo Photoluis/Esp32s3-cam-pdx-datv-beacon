@@ -1,7 +1,7 @@
 """Beacon DATV IZ7PDX - cattura il TS del multiplexer del firmware in un file .ts.
 
-Uso: python ts_capture.py COM3 <pacchetti> out/capture.ts [TSDUMP|CAMDUMP]
-TSDUMP = monoscopio dal file ES (predefinito), CAMDUMP = camera dal vivo (H.264).
+Uso: python ts_capture.py COM3 <pacchetti> out/capture.ts [TSDUMP|CAMDUMP|PIPDUMP|IMGDUMP]
+TSDUMP = monoscopio standard (predefinito); CAMDUMP, PIPDUMP, IMGDUMP = modi dal vivo H.264 (camera, PiP, immagine).
 """
 import sys
 import time
@@ -28,9 +28,9 @@ def main():
             s = line.decode("ascii", "replace").strip()
             if s.startswith("T "):
                 out += bytes.fromhex(s[2:])
-            elif s.startswith((cmd, "ERR")):
+            elif s.startswith((cmd, "DUMP", "ERR")):
                 print(s)
-                if s.startswith((cmd + " fine", "ERR")):
+                if s.startswith((cmd + " fine", "DUMP fine", "ERR")):
                     t_end = 0
     p.close()
     open(path, "wb").write(out)

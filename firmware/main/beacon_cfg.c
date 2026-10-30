@@ -2,6 +2,7 @@
  * Configurazione del beacon (NVS, spazio "beacon", chiave "cfg") e ciclo autonomo. */
 #include "beacon_cfg.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
-#include "sym_player.h"
+#include "live_tx.h"
+#include "media_store.h"
 
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
@@ -19,7 +21,8 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
     /* 2375 MHz: segmento DATV dei 13 cm, lontano dai multipli dei clock di quarzo (40 MHz) e di flash/PSRAM (80 MHz) */
     *c = (pdx_cfg_t){
         .version = PDX_CFG_VERSION, .auto_tx = 0, .freq_khz = 2375000, .amp = 200, .dci = 0, .dcq = 0,
-        .mono_s = 60, .cam_s = 0, .pause_s = 0, .boot_wait_s = 30, .callsign = "IZ7PDX", .ap_pass = "beacon13cm",
+        .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "IZ7PDX", .ap_pass = "beacon13cm",
+        .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
     };
 }
 
@@ -32,7 +35,18 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     size_t len = sizeof(tmp);
     const esp_err_t e = nvs_get_blob(h, NVS_KEY, &tmp, &len);
     nvs_close(h);
-    if (e != ESP_OK || len != sizeof(tmp) || tmp.version != PDX_CFG_VERSION) return false;
+    const size_t v2_len = offsetof(pdx_cfg_t, mono_src);
+    if (e != ESP_OK) return false;
+    /* versione 2: la struttura salvata comprende il riempimento finale (62 -> 64 byte); campi nuovi ai valori predefiniti */
+    if (len == ((v2_len + 3u) & ~(size_t)3u) && tmp.version == 2) {
+        pdx_cfg_t d;
+        pdx_cfg_defaults(&d);
+        memcpy((uint8_t *)&tmp + v2_len, (const uint8_t *)&d + v2_len, sizeof(tmp) - v2_len);
+        tmp.version = PDX_CFG_VERSION;
+    } else if (len != sizeof(tmp) || tmp.version != PDX_CFG_VERSION) {
+        return false;
+    }
+    tmp.fec[sizeof(tmp.fec) - 1] = 0;
     tmp.callsign[sizeof(tmp.callsign) - 1] = 0;
     tmp.ap_pass[sizeof(tmp.ap_pass) - 1] = 0;
     *c = tmp;
@@ -51,10 +65,12 @@ bool pdx_cfg_save(const pdx_cfg_t *c)
 
 void pdx_cfg_print(const pdx_cfg_t *c)
 {
-    printf("CFG auto %s | freq %.3f MHz | amp %d | dc %d/%d | ciclo: monoscopio %u s, camera %u s, pausa %u s | "
-           "attesa all'avvio %u s | QRZ %s\n",
-           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->amp, c->dci, c->dcq, c->mono_s, c->cam_s, c->pause_s,
-           c->boot_wait_s, c->callsign);
+    static const char *const src[] = {"STD", "VIDEO", "IMAGE"};
+    printf("CFG auto %s | freq %.3f MHz | FEC %s | amp %d | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
+           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | QRZ %s\n",
+           c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, c->amp, c->dci, c->dcq, src[c->mono_src % 3],
+           c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
+           c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s, c->callsign);
 }
 
 static bool parse_int(const char *s, long lo, long hi, long *out)
@@ -106,8 +122,31 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         const size_t n = strlen(value);
         if (n < 8 || n >= sizeof(c->ap_pass)) return "password access point da 8 a 23 caratteri";
         strcpy(c->ap_pass, value);
+    } else if (!strcasecmp(key, "monosrc")) {
+        if (!strcasecmp(value, "std")) c->mono_src = PDX_MONO_STD;
+        else if (!strcasecmp(value, "video")) c->mono_src = PDX_MONO_USR_VIDEO;
+        else if (!strcasecmp(value, "image")) c->mono_src = PDX_MONO_USR_IMAGE;
+        else return "monosrc STD/VIDEO/IMAGE";
+    } else if (!strcasecmp(key, "cammode")) {
+        if (!strcasecmp(value, "full")) c->cam_mode = PDX_CAMMODE_FULL;
+        else if (!strcasecmp(value, "pip")) c->cam_mode = PDX_CAMMODE_PIP;
+        else return "cammode FULL/PIP";
+    } else if (!strcasecmp(key, "pipbg")) {
+        if (!strcasecmp(value, "std")) c->pip_bg = 0;
+        else if (!strcasecmp(value, "image")) c->pip_bg = 1;
+        else return "pipbg STD/IMAGE";
+    } else if (!strcasecmp(key, "ovl")) {
+        if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->ovl = 1;
+        else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->ovl = 0;
+        else return "ovl ON/OFF";
+    } else if (!strcasecmp(key, "fec")) {
+        static const char *const ok[] = {"1/2", "3/5", "2/3", "3/4", "4/5", "5/6", "8/9", "9/10"};
+        size_t i = 0;
+        while (i < sizeof(ok) / sizeof(ok[0]) && strcmp(value, ok[i])) i++;
+        if (i == sizeof(ok) / sizeof(ok[0])) return "fec 1/2 3/5 2/3 3/4 4/5 5/6 8/9 9/10";
+        strcpy(c->fec, ok[i]);
     } else {
-        return "chiavi: auto freq amp dci dcq mono cam pause wait call appass";
+        return "chiavi: auto freq fec amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass";
     }
     return NULL;
 }
@@ -123,30 +162,59 @@ static bool wait_s(uint32_t s, pdx_rf_abort_fn abort_fn)
     return true;
 }
 
+/* un segmento del ciclo; restituisce false se la TX è stata fermata */
+static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_fn tx_abort, bool *sent)
+{
+    pdx_live_cfg_t lc = {.sr = 333000, .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
+                         .service = c->callsign, .provider = "IZ7PDX BEACON", .ovl_full = c->ovl != 0,
+                         .freq_khz = c->freq_khz, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
+    const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
+    if (mono) {
+        lc.video = PDX_LV_ES;
+        if (c->mono_src == PDX_MONO_USR_VIDEO) {
+            const uint8_t *v = pdx_media_map(PDX_MEDIA_ES_USR, NULL);
+            if (v) lc.es = v;
+            else printf("BEACON video personalizzato assente: monoscopio standard\n");
+        } else if (c->mono_src == PDX_MONO_USR_IMAGE) {
+            if (usr_img) { lc.video = PDX_LV_IMG; lc.bg = usr_img; }
+            else printf("BEACON immagine personalizzata assente: monoscopio standard\n");
+        }
+    } else {
+        lc.video = c->cam_mode == PDX_CAMMODE_PIP ? PDX_LV_PIP : PDX_LV_CAM;
+        lc.bg = c->pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
+    }
+    if (!pdx_rf_tune(c->freq_khz)) { printf("BEACON ERR sintonia\n"); return false; }
+    const uint32_t want = (uint32_t)(mono ? c->mono_s : c->cam_s) * 1000u;
+    printf("BEACON ciclo %u: %s %.3f MHz SR 333 kS FEC %s amp %d per %u s\n", (unsigned)cycle,
+           pdx_live_video_name(lc.video), c->freq_khz / 1000.0, c->fec, c->amp, (unsigned)(want / 1000u));
+    fflush(stdout);
+    const char *why = NULL;
+    const uint32_t ms = pdx_live_play(&lc, want, tx_abort, &why);
+    if (why) {
+        printf("BEACON ERR %s: segmento saltato\n", why);
+        return true;
+    }
+    *sent = true;
+    const pdx_rf_stats_t *st = pdx_rf_last_stats();
+    printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u)\n", (unsigned)ms,
+           (unsigned)st->underruns, (unsigned)st->late);
+    return ms + 50u >= want;
+}
+
 uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abort_fn idle_abort)
 {
-    pdx_sym_header_t h;
-    const char *why = "";
-    const bool have_mono = pdx_sym_open(&h, &why);
-    if (c->mono_s && !have_mono) printf("BEACON monoscopio non disponibile: %s\n", why);
-    if ((!c->mono_s || !have_mono) && !c->pause_s) {
-        printf("BEACON niente da trasmettere (monoscopio assente o mono = 0, camera non ancora disponibile)\n");
+    if (!c->mono_s && !c->cam_s) {
+        printf("BEACON niente da trasmettere: monoscopio e camera a 0 s\n");
         return 0;
     }
     for (uint32_t cycle = 1;; cycle++) {
-        if (c->mono_s && have_mono) {
-            if (!pdx_rf_tune(c->freq_khz)) { printf("BEACON ERR sintonia\n"); return cycle - 1; }
-            printf("BEACON ciclo %u: MONOSCOPIO \"%s\" %.3f MHz SR %u S/s amp %d per %u s\n", (unsigned)cycle, h.label,
-                   c->freq_khz / 1000.0, (unsigned)h.sr, c->amp, c->mono_s);
-            fflush(stdout);
-            const uint32_t want = (uint32_t)c->mono_s * 1000u;
-            const uint32_t ms = pdx_sym_play(c->amp, c->dci, c->dcq, want, tx_abort);
-            const pdx_rf_stats_t *st = pdx_rf_last_stats();
-            printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u)\n", (unsigned)ms,
-                   (unsigned)st->underruns, (unsigned)st->late);
-            if (ms + 50u < want) return cycle - 1;                 /* fermato */
+        bool sent = false;
+        if (c->mono_s && !segment(c, cycle, true, tx_abort, &sent)) return cycle - 1;
+        if (c->cam_s && !segment(c, cycle, false, tx_abort, &sent)) return cycle - 1;
+        if (!sent) {
+            printf("BEACON nessun segmento trasmesso: ciclo fermato\n");
+            return cycle - 1;
         }
-        if (c->cam_s) printf("BEACON camera: non ancora disponibile (fase C), salto %u s\n", c->cam_s);
         if (c->pause_s) {
             printf("BEACON pausa %u s (TX spenta)\n", c->pause_s);
             fflush(stdout);

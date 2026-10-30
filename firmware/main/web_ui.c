@@ -10,6 +10,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "media_store.h"
 #include "rf_s3.h"
 
 extern const char index_html_start[] asm("_binary_index_html_start");
@@ -22,12 +23,6 @@ static SemaphoreHandle_t cfg_mutex;
 static volatile bool start_request, client_seen;
 static bool radio_dirty;                     /* l'access point è stato acceso dall'avvio: la PHY non è più quella collaudata */
 static char mode_text[48] = "configurazione";
-static struct {
-    bool ok;
-    char label[40];
-    uint32_t sr, nsym;
-} sym;
-
 void pdx_cfg_lock(void) { if (cfg_mutex) xSemaphoreTake(cfg_mutex, portMAX_DELAY); }
 void pdx_cfg_unlock(void) { if (cfg_mutex) xSemaphoreGive(cfg_mutex); }
 
@@ -39,20 +34,6 @@ void pdx_web_init(pdx_cfg_t *c, const char *fw_version)
 }
 
 void pdx_web_set_mode(const char *mode) { snprintf(mode_text, sizeof(mode_text), "%s", mode); }
-
-void pdx_web_set_symbols(bool ok, const char *label, uint32_t sr, uint32_t nsym)
-{
-    sym.ok = ok;
-    sym.sr = sr;
-    sym.nsym = nsym;
-    /* solo caratteri sicuri nel JSON */
-    size_t j = 0;
-    for (size_t i = 0; label && label[i] && j < sizeof(sym.label) - 1; i++) {
-        const char ch = label[i];
-        sym.label[j++] = (ch >= 32 && ch < 127 && ch != '"' && ch != '\\') ? ch : '_';
-    }
-    sym.label[j] = 0;
-}
 
 bool pdx_web_take_start_request(void)
 {
@@ -69,11 +50,14 @@ bool pdx_web_running(void) { return server != NULL; }
 
 static int cfg_json(char *b, size_t n)
 {
+    static const char *const src[] = {"std", "video", "image"};
     return snprintf(b, n,
-                    "{\"auto\":%d,\"freq\":%.3f,\"amp\":%d,\"dci\":%d,\"dcq\":%d,\"mono\":%u,\"cam\":%u,\"pause\":%u,"
+                    "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
+                    "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
                     "\"wait\":%u,\"call\":\"%s\"}",
-                    cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->amp, cfg->dci, cfg->dcq, cfg->mono_s, cfg->cam_s,
-                    cfg->pause_s, cfg->boot_wait_s, cfg->callsign);
+                    cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, cfg->dci, cfg->dcq, cfg->mono_s,
+                    src[cfg->mono_src % 3], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
+                    cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -93,16 +77,19 @@ static esp_err_t h_index(httpd_req_t *r)
 static esp_err_t h_status(httpd_req_t *r)
 {
     client_seen = true;
-    char c[320], b[700];
+    char c[420], b[1100], md[4][96];
     pdx_cfg_lock();
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
+    for (int m = 0; m < 4; m++) pdx_media_describe((pdx_media_t)m, md[m], sizeof(md[m]));
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
-             "\"sym\":{\"ok\":%s,\"label\":\"%s\",\"sr\":%u,\"secs\":%.2f},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d}",
-             fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, sym.ok ? "true" : "false", sym.label,
-             (unsigned)sym.sr, sym.sr ? (double)sym.nsym / sym.sr : 0.0, (unsigned)(PDX_RF_FMIN_KHZ / 1000),
-             (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX);
+             "\"media\":{\"es_std\":\"%s\",\"es_usr\":\"%s\",\"img_std\":\"%s\",\"img_usr\":\"%s\","
+             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d}",
+             fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, md[0], md[1], md[2], md[3],
+             pdx_media_map(PDX_MEDIA_ES_USR, NULL) ? "true" : "false",
+             pdx_media_map(PDX_MEDIA_IMG_USR, NULL) ? "true" : "false", (unsigned)PDX_ES_USR_SIZE,
+             (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX);
     return send_json(r, b);
 }
 
@@ -133,7 +120,7 @@ static esp_err_t h_set(httpd_req_t *r)
         got += k;
     }
     body[got] = 0;
-    char errs[300] = "", c[320], out[700];
+    char errs[300] = "", c[420], out[800];
     pdx_cfg_lock();
     for (char *save = NULL, *kv = strtok_r(body, "&", &save); kv; kv = strtok_r(NULL, "&", &save)) {
         char *eq = strchr(kv, '=');
@@ -174,6 +161,60 @@ static esp_err_t h_defaults(httpd_req_t *r)
     return send_json(r, "{\"ok\":true,\"msg\":\"valori predefiniti (non ancora salvati)\"}");
 }
 
+/* tipo di file dalla query: ?kind=video | ?kind=image */
+static bool query_kind(httpd_req_t *r, pdx_media_t *m)
+{
+    char q[32], v[8];
+    if (httpd_req_get_url_query_str(r, q, sizeof(q)) != ESP_OK || httpd_query_key_value(q, "kind", v, sizeof(v)) != ESP_OK)
+        return false;
+    if (!strcmp(v, "video")) *m = PDX_MEDIA_ES_USR;
+    else if (!strcmp(v, "image")) *m = PDX_MEDIA_IMG_USR;
+    else return false;
+    return true;
+}
+
+static esp_err_t media_reply(httpd_req_t *r, pdx_media_t m, const char *err)
+{
+    char d[96], out[200];
+    if (err) snprintf(out, sizeof(out), "{\"ok\":false,\"msg\":\"%s\"}", err);
+    else {
+        pdx_media_describe(m, d, sizeof(d));
+        snprintf(out, sizeof(out), "{\"ok\":true,\"msg\":\"caricato: %s\"}", d);
+    }
+    return send_json(r, out);
+}
+
+/* POST /api/upload?kind=video|image, corpo = file binario (PDXES001 dal PC, PDXIMG01 preparato dalla pagina) */
+static esp_err_t h_upload(httpd_req_t *r)
+{
+    client_seen = true;
+    pdx_media_t m;
+    if (!query_kind(r, &m)) return send_json(r, "{\"ok\":false,\"msg\":\"kind=video|image\"}");
+    const char *e = pdx_media_write_begin(m, (uint32_t)r->content_len);
+    static uint8_t buf[2048];
+    for (int left = r->content_len; !e && left > 0;) {
+        const int k = httpd_req_recv(r, (char *)buf, left < (int)sizeof(buf) ? left : (int)sizeof(buf));
+        if (k == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (k <= 0) { e = "connessione interrotta"; break; }
+        e = pdx_media_write(buf, (uint32_t)k);
+        left -= k;
+    }
+    const char *e2 = pdx_media_write_end();
+    if (!e) e = e2;
+    if (e) pdx_media_erase_user(m);                  /* un file a metà non deve restare in flash */
+    return media_reply(r, m, e);
+}
+
+/* POST /api/erase?kind=video|image: cancella un file personalizzato (quelli standard non si possono cancellare) */
+static esp_err_t h_erase(httpd_req_t *r)
+{
+    pdx_media_t m;
+    if (!query_kind(r, &m)) return send_json(r, "{\"ok\":false,\"msg\":\"kind=video|image\"}");
+    const char *e = pdx_media_erase_user(m);
+    return send_json(r, e ? "{\"ok\":false,\"msg\":\"cancellazione non riuscita\"}"
+                          : "{\"ok\":true,\"msg\":\"file personalizzato cancellato\"}");
+}
+
 static esp_err_t h_start(httpd_req_t *r)
 {
     start_request = true;
@@ -207,7 +248,8 @@ bool pdx_web_start(void)
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
     hc.core_id = 1;
     hc.stack_size = 6144;
-    hc.max_uri_handlers = 8;
+    hc.max_uri_handlers = 10;
+    hc.recv_wait_timeout = 15;                                  /* la flash si cancella a blocchi durante il caricamento */
     hc.lru_purge_enable = true;
     if (httpd_start(&server, &hc) != ESP_OK) {
         printf("WEB ERR server\n");
@@ -222,6 +264,8 @@ bool pdx_web_start(void)
         {.uri = "/api/save", .method = HTTP_POST, .handler = h_save},
         {.uri = "/api/defaults", .method = HTTP_POST, .handler = h_defaults},
         {.uri = "/api/start", .method = HTTP_POST, .handler = h_start},
+        {.uri = "/api/upload", .method = HTTP_POST, .handler = h_upload},
+        {.uri = "/api/erase", .method = HTTP_POST, .handler = h_erase},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(server, &uris[i]);
     client_seen = false;

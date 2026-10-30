@@ -9,8 +9,12 @@ Formato "PDXES001" (little endian):
                          offset dei dati, label[36]
   tabella: per unità  tipo (0 video, 1 audio), 3 byte riservati, pts relativo (90 kHz), offset, lunghezza
   dati: contenuto dei PES senza intestazione PES
-Scrittura sulla scheda (a 6 MB nella partizione "symbols"):
+Monoscopio standard (protetto, lo scrive solo chi prepara la scheda, a 6 MB nella partizione "symbols"):
+  python make_es.py -o out/mono_es.bin
   python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin
+Monoscopio personalizzato (video o immagine; poi pagina web o tools/upload_media.py, vedi docs/MONOSCOPIO.md):
+  python make_es.py --video mio.mp4 --loops 2 --no-band -o out/mio_es.bin
+Il bitrate del video è calcolato per il FEC più robusto (--rate-fec, predefinito 1/2): il file va bene con tutti i FEC.
 """
 import argparse
 import struct
@@ -24,9 +28,9 @@ sys.path.insert(0, str(Path(__file__).parent / "dvbs2"))
 import encoder as dvbs2  # noqa: E402
 import make_symbols  # noqa: E402
 
-LOOP_S = 19.2
-LOOP_TICKS = int(LOOP_S * 90000)
+LOOP_UNIT_S = 19.2                         # 480 immagini e 900 frame AAC esatti
 ES_OFFSET = 0x600000                       # dentro la partizione "symbols"
+USER_MAX = 0x300000                        # area del video personalizzato
 
 
 def parse_pes(ts: bytes, pid: int):
@@ -59,18 +63,29 @@ def parse_pes(ts: bytes, pid: int):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sr", type=int, default=333000)
-    ap.add_argument("--fec", default="3/4")
+    ap.add_argument("--rate-fec", default="1/2", help="FEC per il calcolo del bitrate (il più robusto che si userà)")
     ap.add_argument("--callsign", default="IZ7PDX/B")
     ap.add_argument("--label-freq", default="2375.000 MHz")
-    ap.add_argument("--image")
+    ap.add_argument("--image", help="immagine fissa (ritagliata/riquadrata a 640x360)")
+    ap.add_argument("--video", help="video (ripetuto se più corto, tagliato se più lungo)")
+    ap.add_argument("--loops", type=int, default=1, help="durata del loop in multipli di 19,2 s (1..5)")
+    ap.add_argument("--no-text", action="store_true", help="senza le scritte QRZ / frequenza / modulazione")
+    ap.add_argument("--no-band", action="store_true", help="senza la fascia con scanner e contatore in basso")
     ap.add_argument("-o", "--output", default="out/mono_es.bin")
     a = ap.parse_args()
-    e = dvbs2.Encoder(a.fec, "normal", True)
+    if not 1 <= a.loops <= 5:
+        raise SystemExit("--loops 1..5")
+    LOOP_S = LOOP_UNIT_S * a.loops
+    LOOP_TICKS = int(round(LOOP_S * 90000))
+    a.fec = a.rate_fec
+    e = dvbs2.Encoder(a.rate_fec, "normal", True)
     bitrate = e.ts_bitrate(a.sr)
     with tempfile.TemporaryDirectory() as td:
         tsp = str(Path(td) / "m.ts")
         # audio più lungo del loop: se ne prendono 900 frame consecutivi (il primo arriva dopo il ritardo dell'encoder)
-        make_symbols.make_ts(SimpleNamespace(callsign=a.callsign, label_freq=a.label_freq, fec=a.fec, sr=a.sr, image=a.image),
+        make_symbols.make_ts(SimpleNamespace(callsign=a.callsign, label_freq=a.label_freq, fec=a.fec, fec_label="",
+                                             sr=a.sr, image=a.image, video=a.video, no_text=a.no_text,
+                                             no_band=a.no_band),
                              bitrate, LOOP_S + 1.0, tsp, keyint=48, loop_s=LOOP_S)
         ts = Path(tsp).read_bytes()
     video = parse_pes(ts, 0x100)
@@ -103,10 +118,13 @@ def main():
     for k, pts, d in units:
         table += struct.pack("<B3xIII", k, pts, len(data), len(d))
         data += d
-    label = f"{a.callsign} ES {a.fec} {a.sr // 1000}k".encode()[:35]
+    src = Path(a.video or a.image).stem if (a.video or a.image) else a.callsign
+    label = f"{src} {a.sr // 1000}k".encode("ascii", "replace")[:35]
     hdr = struct.pack("<8sIIIII36s", b"PDXES001", len(units), LOOP_TICKS, 0x24, 0x0F, data_off, label)
     assert len(hdr) == 64
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)
+    if (a.video or a.image) and len(hdr + table + data) > USER_MAX:
+        raise SystemExit(f"file di {len(hdr + table + data)} byte: oltre i {USER_MAX} dell'area personalizzata (ridurre --loops)")
     Path(a.output).write_bytes(hdr + table + data)
     print(f"{a.output}: {len(units)} unità, {len(hdr + table + data)} byte (TS {bitrate:.0f} bit/s, "
           f"contenuto {len(data) * 8 / LOOP_S / 1000:.0f} kbit/s)")
