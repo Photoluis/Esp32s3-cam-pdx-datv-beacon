@@ -50,20 +50,28 @@ Materiale pronto in `docs/presentazione/`: una presentazione per lingua (Markdow
 
 ## Testo breve per i social (italiano)
 
-> **ESP32-S3-CAM_PDX DATV Beacon** — una scheda ESP32-S3 con camera da poche decine di euro diventa un trasmettitore
-> **DVB-S2** completo: il trasmettitore Wi-Fi del chip fa da modulatore I/Q, video H.264/H.265, multiplexer TS e codifica
-> DVB-S2 sono calcolati sulla scheda. 2300–2450 MHz (altre bande con un mixer), camera dal vivo e PiP, monoscopi
-> personalizzati dal telefono, configurazione in 11 lingue. Ricevuto con MER 23–27 dB su Portsdown 4 e Minitiouner.
-> Open source (GPL-3.0): provatelo, mandateci le vostre prove in aria e le idee per migliorarlo! 73 de IZ7PDX
-> https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
+Happy Halloween a tutti !!! Questo è il mio ultimo progetto: una scheda con telecamera basata sulla nuova  ESP32-S3 (no C3 !) , economica, che si trasforma in un trasmettitore DVB-S2 completo (telecamera inclusa nel kit)!
+Il trasmettitore Wi-Fi del chip funge da modulatore I/Q, mentre la codifica video H.264/H.265, il multiplexing TS e la codifica DVB-S2 vengono gestiti interamente dalla scheda.
+Copre la banda 2300–2450 MHz (altre bande sono accessibili tramite un mixer), supporta riprese in diretta e funzione PiP (Picture-in-Picture), consente di creare monoscopi personalizzati dallo smartphone ed è configurabile in 11 lingue.
+Segnale ricevuto con un MER di 23–27 dB utilizzando Portsdown 4 e Minitiouner. Progetto open source (licenza GPL-3.0): provatelo e inviatemi i vostri report di trasmissione e le vostre idee!
+
+Potete trovare il progetto completo e tutte le istruzioni qui:
+https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
+
+73 de IZ7PDX
 
 ## Short text for social media (English)
 
-> **ESP32-S3-CAM_PDX DATV Beacon** — a low-cost ESP32-S3 camera board becomes a complete **DVB-S2** transmitter: the
-> chip's Wi-Fi transmitter is the I/Q modulator, while H.264/H.265 video, TS multiplexing and DVB-S2 coding all run on
-> the board. 2300–2450 MHz (other bands through a mixer), live camera and PiP, custom test cards from your phone, set-up
-> in 11 languages. Received with MER 23–27 dB on Portsdown 4 and Minitiouner. Open source (GPL-3.0): try it, send us
-> your on-air reports and ideas! 73 de IZ7PDX https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
+Happy Halloween, everyone!!! This is my latest project: an affordable camera board based on the new ESP32-S3 (not the C3!) that functions as a complete DVB-S2 transmitter (camera included in the kit)!
+The chip’s Wi-Fi transmitter acts as an I/Q modulator, while H.264/H.265 video encoding, TS multiplexing, and DVB-S2 encoding are handled entirely by the board itself.
+It covers the 2300–2450 MHz band (other bands can be accessed via a mixer), supports live streaming and a Picture-in-Picture (PiP) function, allows for the creation of custom test patterns from a smartphone, and is configurable in 11 languages.
+The signal is received with an MER of 23–27 dB using Portsdown 4 and Minitiouner. It is an open-source project (GPL-3.0 license)—give it a try and send me your transmission reports and ideas!
+
+You can find the complete project and all instructions here:
+https://github.com/Photoluis/esp32s3-cam-pdx-datv-beacon
+
+73 de IZ7PDX
+
 
 ## Fonti della ricerca (30/10/2026)
 
