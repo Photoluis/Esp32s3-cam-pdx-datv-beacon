@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DATV Beacon Installer</title>
+<meta name="description" content="Install the ESP32-S3-CAM_PDX DATV Beacon firmware from the browser (Chrome / Edge), no software to install.">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--fg:#e6edf3;--mut:#9da7b3;--acc:#f5b301;--line:#30363d;--warn:#ffb4a8}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f8fa;--card:#fff;--fg:#1f2328;--mut:#59636e;--acc:#9a6700;--line:#d0d7de;--warn:#a40e26}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:820px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:1.6rem;margin:.2em 0}
+h2{font-size:1.15rem;margin:1.6em 0 .4em;color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0}
+.mut{color:var(--mut)}
+.warn{color:var(--warn);font-weight:600}
+code{background:rgba(127,127,127,.15);padding:1px 5px;border-radius:4px;font-size:.92em}
+ol{padding-left:1.3em}li{margin:.25em 0}
+img{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}
+.lang{float:right;font-size:.9rem}
+.lang a{color:var(--acc)}
+esp-web-install-button{display:inline-block;margin:8px 0}
+a{color:var(--acc)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
+</style>
+</head>
+<body>
+<main>
+<div class="lang"><a href="#en">English</a> · <a href="#it">Italiano</a></div>
+<h1>ESP32-S3-CAM_PDX DATV Beacon</h1>
+<p class="mut">DVB-S2 amateur TV beacon with camera on a single ESP32-S3 board · firmware v1.0.0 ·
+<a href="https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon">GitHub</a></p>
+
+<div class="card">
+  <esp-web-install-button manifest="install/manifest.json">
+    <button slot="activate" style="font-size:1.05rem;padding:10px 18px;border-radius:8px;border:0;background:var(--acc);color:#000;font-weight:700;cursor:pointer">Install / Installa v1.0.0</button>
+    <span slot="unsupported" class="warn">This browser cannot program the board: use Chrome or Edge on a computer. /
+      Questo browser non può programmare la scheda: usate Chrome o Edge su un computer.</span>
+    <span slot="not-allowed" class="warn">The page must be opened over HTTPS. / La pagina va aperta in HTTPS.</span>
+  </esp-web-install-button>
+  <p class="mut" style="margin:.3em 0 0">Chrome / Edge (Windows, Linux, macOS) · Web Serial · no software to install</p>
+</div>
+
+<p class="warn">Licensed radio amateurs only: transmit only on the frequencies and at the power allowed by your licence,
+always with an output filter. / Solo per radioamatori con licenza, sulle frequenze e con le potenze consentite, sempre
+con un filtro sull'uscita.</p>
+
+<h2 id="en">English — how to install</h2>
+<ol>
+  <li>Connect the board with a USB-C data cable to the port marked <b>COM</b> (CH340 serial chip). On Windows 11 the
+      driver usually installs by itself; otherwise install the WCH <b>CH341SER</b> driver.</li>
+  <li>Click <b>Install</b>, pick the serial port of the board (e.g. <code>USB-SERIAL CH340 (COM3)</code>) and confirm.</li>
+  <li>For a <b>first installation</b> tick <i>Erase device</i>. For an <b>update</b> leave it unticked: your settings
+      and custom test cards are kept.</li>
+  <li>If the connection fails, hold <b>BOOT</b>, press and release <b>RST</b>, release <b>BOOT</b>, then try again.</li>
+  <li>When it is done, press <b>RST</b>. Connect your phone to the Wi-Fi <code>NOCALL-BEACON</code> (password
+      <code>beacon13cm</code>), open <code>http://192.168.4.1</code>, set <b>your callsign</b>, frequency and
+      cycle, then <i>Apply and save</i>. Change the Wi-Fi password from the menu.</li>
+</ol>
+
+<h2 id="it">Italiano — come installare</h2>
+<ol>
+  <li>Collegate la scheda con un cavo USB-C dati alla porta marcata <b>COM</b> (convertitore seriale CH340). Su
+      Windows 11 il driver di solito si installa da solo; altrimenti installate il driver WCH <b>CH341SER</b>.</li>
+  <li>Premete <b>Installa</b>, scegliete la porta seriale della scheda (es. <code>USB-SERIAL CH340 (COM3)</code>) e
+      confermate.</li>
+  <li>Per la <b>prima installazione</b> spuntate <i>Erase device</i> (cancella la scheda). Per un
+      <b>aggiornamento</b> lasciatela vuota: impostazioni e monoscopi personalizzati restano.</li>
+  <li>Se la connessione non riesce: tenete premuto <b>BOOT</b>, premete e rilasciate <b>RST</b>, rilasciate
+      <b>BOOT</b> e riprovate.</li>
+  <li>Alla fine premete <b>RST</b>. Collegate il telefono alla rete <code>NOCALL-BEACON</code> (password
+      <code>beacon13cm</code>), aprite <code>http://192.168.4.1</code>, impostate <b>il vostro nominativo</b>, la frequenza e il ciclo, poi <i>Applica e salva</i>. Cambiate la password del Wi-Fi dal menu.</li>
+</ol>
+
+<h2>Board / Scheda</h2>
+<img src="img/board_esp32s3_cam_n16r8.jpg" alt="ESP32-S3-CAM board (N16R8, OV3660 camera, CH340 COM port and native USB OTG port)" loading="lazy">
+<p class="mut">Tested board: ESP32-S3-CAM N16R8 (16 MB flash, 8 MB PSRAM), two USB-C ports (COM = CH340, OTG = native
+USB), OV3660 camera. / Scheda provata: ESP32-S3-CAM N16R8, due porte USB-C, camera OV3660.</p>
+
+<h2>Other ways / Altri metodi</h2>
+<table>
+  <tr><th>Method / Metodo</th><th>Where / Dove</th></tr>
+  <tr><td>Windows package with <code>esptool.exe</code> and double-click scripts (no Python, no Arduino)</td>
+      <td>Release page: <code>…_Windows.zip</code></td></tr>
+  <tr><td>Python + esptool (Windows, Linux, macOS)</td><td><a href="https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/blob/main/docs/INSTALL.md">docs/INSTALL.md</a></td></tr>
+  <tr><td>Build from source (ESP-IDF 6.1)</td><td><a href="https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/blob/main/docs/INSTALL.md#4-build-from-source-esp-idf">docs/INSTALL.md</a></td></tr>
+</table>
+
+<p class="mut" style="margin-top:2em">ESP32-S3-CAM_PDX DATV Beacon · GPL-3.0 · IZ7PDX · iz7pdx@gmail.com · Installer:
+<a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a></p>
+</main>
+</body>
+</html>

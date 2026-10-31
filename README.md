@@ -24,8 +24,19 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
 - **Web set-up from your phone** in 11 languages (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR) while not transmitting;
   full serial command set.
 
+## Install
+
+- **From the browser, nothing to install:** https://photoluis.github.io/Esp32s3-cam-pdx-datv-beacon/ (Chrome / Edge)
+- **Windows package** with `esptool.exe` and double-click scripts: `…_Windows.zip` on the
+  [release page](https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/releases)
+- Step-by-step guide (browser, Windows, Python, build from source): [docs/INSTALL.md](docs/INSTALL.md) ·
+  [italiano](docs/INSTALL_it.md)
+
+The firmware is built with ESP-IDF, not Arduino: no Arduino IDE is needed to install it.
+
 ## Documentation
 
+- [Installation guide](docs/INSTALL.md)
 - [The project](docs/PROGETTO.md) (Italian; [complete PDF](docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf), also offline)
 - [Presentation in 11 languages](docs/presentazione/) with an invitation to collaborate (Markdown + PDF)
 - [Custom test cards](docs/MONOSCOPIO.md) (Italian)
@@ -37,6 +48,14 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
   (tested: diymore ESP32-S3-CAM, Freenove layout).
 - 13 cm antenna. **A band-pass filter on the output is required for on-air use**: the DAC produces images.
 - A DVB-S2 receiver (e.g. Minitiouner / Portsdown 4).
+
+![ESP32-S3-CAM N16R8 board with OV3660 camera, COM (CH340) and OTG USB-C ports](docs/img/board_esp32s3_cam_n16r8.jpg)
+
+**Why the S3 and not the C3?** The ESP32-C3 has one RISC-V core, no PSRAM and no camera interface: it cannot run the
+camera, the H.264 encoder and the DVB-S2 coder at the same time. The beacon needs the S3 (two cores, 8 MB PSRAM,
+parallel camera port); firmware and peripherals are different, so the C3 is not a drop-in replacement.
+
+![ESP32-C3 vs ESP32-S3 comparison](docs/img/esp32_c3_vs_s3.png)
 
 ## Build and flash
 

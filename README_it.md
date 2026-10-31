@@ -23,8 +23,18 @@ sono calcolati sull'ESP stesso.
 | LED RGB di stato (colore proporzionale alla potenza; normale, minimo, spento) | collaudato |
 | Telemetria in sovrimpressione (temperatura del chip, accensione, ciclo) | collaudato |
 
+## Installazione
+
+- **Dal browser, senza installare nulla:** https://photoluis.github.io/Esp32s3-cam-pdx-datv-beacon/ (Chrome / Edge)
+- **Pacchetto Windows** con `esptool.exe` e script a doppio clic: `…_Windows.zip` nella
+  [pagina delle release](https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/releases)
+- Guida passo passo (browser, Windows, Python, compilazione): [docs/INSTALL_it.md](docs/INSTALL_it.md)
+
+Il firmware è scritto con ESP-IDF, non con Arduino: per installarlo non serve l'Arduino IDE.
+
 ## Documentazione
 
+- [Guida all'installazione](docs/INSTALL_it.md)
 - [Il progetto](docs/PROGETTO.md): perché l'ESP32-S3, come funziona, tappe dello sviluppo, risultati
   ([PDF completo](docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf), anche offline)
 - [Presentazione in 11 lingue](docs/presentazione/) con l'invito a collaborare (Markdown + PDF)
@@ -38,6 +48,14 @@ sono calcolati sull'ESP stesso.
   (provata: diymore ESP32-S3-CAM, disposizione Freenove).
 - Antenna per i 13 cm. **Per l'uso in aria è necessario un filtro passa-banda** sull'uscita: il DAC genera immagini.
 - Ricevitore DVB-S2 per la prova (es. Minitiouner / Portsdown 4).
+
+![Scheda ESP32-S3-CAM N16R8 con camera OV3660, porte USB-C COM (CH340) e OTG](docs/img/board_esp32s3_cam_n16r8.jpg)
+
+**Perché l'S3 e non il C3?** L'ESP32-C3 ha un solo core RISC-V, niente PSRAM e niente interfaccia camera: non può far
+girare insieme camera, codificatore H.264 e codifica DVB-S2. Il beacon richiede l'S3 (due core, 8 MB di PSRAM, porta
+camera parallela); firmware e periferiche sono diversi, quindi il C3 non è un sostituto diretto.
+
+![Confronto ESP32-C3 / ESP32-S3](docs/img/esp32_c3_vs_s3.png)
 
 ## Struttura
 
