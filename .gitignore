@@ -36,3 +36,6 @@ Thumbs.db
 
 # file della release (allegati su GitHub, non nel repository)
 /release/
+
+# catture di prova del modo PARROT
+tools/parrot/out/
