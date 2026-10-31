@@ -59,12 +59,12 @@ static int cfg_json(char *b, size_t n)
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\"}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
                     cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv,
-                    cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem);
+                    cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem, cfg->locator);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -84,7 +84,7 @@ static esp_err_t h_index(httpd_req_t *r)
 static esp_err_t h_status(httpd_req_t *r)
 {
     client_seen = true;
-    char c[420], b[1100], md[4][96];
+    char c[480], b[1160], md[4][96];
     pdx_cfg_lock();
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
@@ -128,7 +128,7 @@ static esp_err_t h_set(httpd_req_t *r)
         got += k;
     }
     body[got] = 0;
-    char errs[300] = "", c[420], out[800];
+    char errs[300] = "", c[480], out[900];
     pdx_cfg_lock();
     for (char *save = NULL, *kv = strtok_r(body, "&", &save); kv; kv = strtok_r(NULL, "&", &save)) {
         char *eq = strchr(kv, '=');

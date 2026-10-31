@@ -98,7 +98,9 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     if (e != ESP_OK) return false;
     /* versioni precedenti: la struttura salvata arriva fino ai campi di allora (con il riempimento finale), i campi
      * nuovi prendono i valori predefiniti */
-    const size_t old_len = tmp.version == 2 ? offsetof(pdx_cfg_t, mono_src) : tmp.version == 3 ? offsetof(pdx_cfg_t, lo_khz) : 0;
+    const size_t old_len = tmp.version == 2 ? offsetof(pdx_cfg_t, mono_src)
+                         : tmp.version == 3 ? offsetof(pdx_cfg_t, lo_khz)
+                         : tmp.version == 4 ? offsetof(pdx_cfg_t, locator) : 0;
     if (old_len && len == ((old_len + 3u) & ~(size_t)3u)) {
         pdx_cfg_t d;
         pdx_cfg_defaults(&d);
@@ -110,6 +112,7 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     tmp.fec[sizeof(tmp.fec) - 1] = 0;
     tmp.callsign[sizeof(tmp.callsign) - 1] = 0;
     tmp.ap_pass[sizeof(tmp.ap_pass) - 1] = 0;
+    tmp.locator[sizeof(tmp.locator) - 1] = 0;
     *c = tmp;
     return true;
 }
@@ -136,11 +139,26 @@ void pdx_cfg_print(const pdx_cfg_t *c)
                c->lo_khz / 1000.0, c->xvtr == PDX_XVTR_DIFF ? "|OL-IF|" : "OL+IF", fin / 1000.0,
                inv ? " (spettro invertito dal mixer: compensato)" : "");
     printf("CFG auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
-           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s\n",
+           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s\n",
            c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
            c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s,
-           c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign);
+           c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign,
+           c->locator[0] ? c->locator : "-");
+}
+
+/* QTH locator Maidenhead: AA00 o AA00AA (campo A-R, quadrato 0-9, sottoquadrato A-X); salvato in maiuscolo */
+static bool locator_ok(const char *s)
+{
+    const size_t n = strlen(s);
+    if (n != 4 && n != 6) return false;
+    for (size_t i = 0; i < n; i++) {
+        const char u = (s[i] >= 'a' && s[i] <= 'z') ? (char)(s[i] - 32) : s[i];
+        if (i < 2 && !(u >= 'A' && u <= 'R')) return false;
+        if ((i == 2 || i == 3) && !(u >= '0' && u <= '9')) return false;
+        if (i >= 4 && !(u >= 'A' && u <= 'X')) return false;
+    }
+    return true;
 }
 
 static bool parse_int(const char *s, long lo, long hi, long *out)
@@ -192,6 +210,13 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
                 return "QRZ: lettere, cifre, / e -";
         strcpy(c->callsign, value);
         for (char *p = c->callsign; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+    } else if (!strcasecmp(key, "loc")) {                /* "" o "-" = nessun locatore */
+        if (!value[0] || !strcmp(value, "-")) c->locator[0] = 0;
+        else if (!locator_ok(value)) return "locatore Maidenhead di 4 o 6 caratteri (es. JN80 o JN80PS), - per toglierlo";
+        else {
+            strcpy(c->locator, value);
+            for (char *p = c->locator; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+        }
     } else if (!strcasecmp(key, "appass")) {
         const size_t n = strlen(value);
         if (n < 8 || n >= sizeof(c->ap_pass)) return "password access point da 8 a 23 caratteri";
@@ -240,7 +265,7 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr led telem";
+        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem";
     }
     return NULL;
 }
@@ -263,6 +288,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
     pdx_live_cfg_t lc = {.sr = 333000, .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
                          .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
+                         .locator = c->locator,
                          .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
     pdx_rf_set_invert(inv);
     lc.telem = pdx_cfg_telemetry(c, cycle);              /* letta qui, prima della TX */

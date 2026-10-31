@@ -55,6 +55,7 @@ small{color:var(--muted)}
 <label><span data-t="fec"></span><select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
 <label><span data-t="level"></span><input name="level" id="level" type="number" step="0.1" min="-40" max="0" inputmode="decimal"></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
+<label>QTH Locator<input name="loc" id="loc" autocapitalize="characters" maxlength="6" placeholder="JN80PS"></label>
 <label><span data-t="dc"></span><span style="display:flex;gap:6px"><input name="dci" id="dci" inputmode="numeric"><input name="dcq" id="dcq" inputmode="numeric"></span></label>
 </div>
 <p id="nocall" class="warn" style="display:none;margin:8px 0 4px;font-weight:600" data-t="nocall"></p>
@@ -416,7 +417,7 @@ for(const l of Object.keys(FLAGS)){const b=document.createElement('button');b.ty
 function msg(m,c){const e=$('msg');e.textContent=m;e.className=c||''}
 let lastCfg=null;
 function showFinal(){if(!lastCfg)return;$('final').textContent=lastCfg.final.toFixed(3);$('inv').textContent=lastCfg.inv?t('inv_note'):''}
-function fill(c){lastCfg=c;showFinal();for(const k of['freq','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait','lo','xvtr','led'])$(k).value=c[k];$('callin').value=c.call;$('call').textContent=c.call;$('nocall').style.display=c.call==='NOCALL'?'block':'none';$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl;$('telem').checked=!!c.telem}
+function fill(c){lastCfg=c;showFinal();for(const k of['freq','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait','lo','xvtr','led'])$(k).value=c[k];$('callin').value=c.call;$('loc').value=c.loc||'';$('call').textContent=c.call;$('nocall').style.display=c.call==='NOCALL'?'block':'none';$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl;$('telem').checked=!!c.telem}
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
   $('fw').textContent=s.fw;lastMode=s.mode;$('mode').textContent=MODES[s.mode]?t(MODES[s.mode]):s.mode;$('band').textContent=s.fmin+'–'+s.fmax;

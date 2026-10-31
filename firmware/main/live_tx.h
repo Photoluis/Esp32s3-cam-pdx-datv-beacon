@@ -23,6 +23,7 @@ typedef struct {
     bool ovl_full;                       /* sovrimpressione con QRZ e frequenza (altrimenti solo la fascia in basso) */
     const char *telem;                   /* riga di telemetria (NULL = nessuna), preparata prima della TX */
     uint64_t freq_khz;                   /* frequenza finale in aria, per la sovrimpressione */
+    const char *locator;                 /* QTH locator in sovrimpressione (NULL o "" = nessuno) */
 } pdx_live_cfg_t;
 
 const char *pdx_live_video_name(pdx_live_video_t v);

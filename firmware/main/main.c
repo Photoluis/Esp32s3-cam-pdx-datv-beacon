@@ -18,7 +18,8 @@
  *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
  *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec level amp dci dcq
- *        mono monosrc cam cammode pipbg ovl pause wait call appass lo xvtr led); SAVE la scrive in NVS
+ *        mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem); SAVE la scrive in NVS
+ *        loc = QTH locator Maidenhead (JN80 o JN80PS, - per toglierlo), in sovrimpressione accanto alla frequenza
  *        led NORMAL|MIN|OFF = LED di stato normale, al minimo o spento (alimentazione a batteria)
  *        telem ON|OFF = riga con temperatura del chip, tempo di accensione e ciclo nei modi dal vivo
  *        lo = oscillatore locale di un mixer esterno (MHz, 0 = nessuno), xvtr SUM|DIFF: la scheda trasmette sempre sulla IF
@@ -64,7 +65,7 @@
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
-#define FW_VERSION "v1.0.0"
+#define FW_VERSION "v1.1.0-dev"
 #define TX_MAX_S   300u
 
 #define BOOT_GPIO 0                 /* pulsante BOOT della scheda: premuto = livello basso */
@@ -226,7 +227,8 @@ static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_
     *lc = (pdx_live_cfg_t){.sr = 333000, .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
                            .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
-                           .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0)};
+                           .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0),
+                           .locator = cfg.locator};
     if (v == PDX_LV_IMG) lc->bg = usr_img;
     else lc->bg = cfg.pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
 }

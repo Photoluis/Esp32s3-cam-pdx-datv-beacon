@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "rf_s3.h"
 
-#define PDX_CFG_VERSION 4
+#define PDX_CFG_VERSION 5
 
 typedef struct {
     uint16_t version;
@@ -32,6 +32,8 @@ typedef struct {
     uint8_t led;            /* PDX_LED_*: 0 normale, 1 minimo, 2 spento (era riservato: 0 nelle configurazioni salvate) */
     uint8_t telem;          /* riga di telemetria in sovrimpressione: temperatura del chip, accensione, ciclo */
     uint8_t rsv4[1];
+    /* dalla versione 5 */
+    char locator[8];        /* QTH locator Maidenhead (4 o 6 caratteri, "" = non mostrato) */
 } pdx_cfg_t;
 
 enum { PDX_MONO_STD, PDX_MONO_USR_VIDEO, PDX_MONO_USR_IMAGE, PDX_MONO_LIVE };
