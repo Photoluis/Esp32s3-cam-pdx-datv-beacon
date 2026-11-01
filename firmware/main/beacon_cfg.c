@@ -47,6 +47,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "NOCALL", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
+        .locator = "JN80PS",   /* locatore di IZ7PDX: da togliere ("") prima di una release pubblica, come NOCALL */
     };
 }
 
@@ -81,8 +82,11 @@ const char *pdx_cfg_telemetry(const pdx_cfg_t *c, uint32_t cycle)
 
 const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz)
 {
-    static char s[24];
-    snprintf(s, sizeof(s), "BEACON %.3f MHz", pdx_cfg_final_khz(c, if_khz, NULL) / 1000.0);
+    /* "BEACON 2375.000 MHz JN80PS": il locatore va anche nella SDT, così il ricevitore lo mostra pure con il monoscopio
+     * standard (precodificato, senza sovrimpressione) */
+    static char s[40];
+    snprintf(s, sizeof(s), "BEACON %.3f MHz%s%s", pdx_cfg_final_khz(c, if_khz, NULL) / 1000.0, c->locator[0] ? " " : "",
+             c->locator);
     return s;
 }
 
