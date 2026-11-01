@@ -31,13 +31,15 @@ typedef struct {
     uint8_t xvtr;           /* PDX_XVTR_*: frequenza finale = OL + IF oppure |OL - IF| */
     uint8_t led;            /* PDX_LED_*: 0 normale, 1 minimo, 2 spento (era riservato: 0 nelle configurazioni salvate) */
     uint8_t telem;          /* riga di telemetria in sovrimpressione: temperatura del chip, accensione, ciclo */
-    uint8_t rsv4[1];
+    uint8_t sr_sel;         /* PDX_SR_*: symbol rate (era riservato: 0 = 333 kS anche nelle configurazioni salvate prima) */
     /* dalla versione 5 */
     char locator[8];        /* QTH locator Maidenhead (4 o 6 caratteri, "" = non mostrato) */
 } pdx_cfg_t;
 
 enum { PDX_MONO_STD, PDX_MONO_USR_VIDEO, PDX_MONO_USR_IMAGE, PDX_MONO_LIVE };
 enum { PDX_XVTR_SUM, PDX_XVTR_DIFF };
+enum { PDX_SR_333, PDX_SR_125, PDX_SR_250, PDX_SR_500, PDX_SR_1000, PDX_SR_N };
+uint32_t pdx_cfg_sr(const pdx_cfg_t *c);   /* symbol rate in S/s */
 
 #define PDX_LO_MAX_KHZ 100000000u   /* 100 GHz */
 /* frequenza finale in aria per una IF; *inverted = spettro invertito dal mixer (OL sopra la IF, prodotto differenza) */

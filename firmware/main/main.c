@@ -13,7 +13,7 @@
  *   SYMINFO                                  descrive il file di simboli nella partizione "symbols"
  *   PLAY <MHz> <liv> <secondi> [dcI dcQ]     trasmette in loop i simboli della partizione (SR dal file)
  *   CAMBENCH <w> <h> <fotogrammi> <kbps> <fps>  prova camera + H.264 software sul core 1 (nessuna RF)
- *   ESPLAY <MHz> <liv> <s> [fec] [short] [nopilots] [cam|pip|img|live|user]  TS generato sull'ESP: monoscopio standard,
+ *   ESPLAY <MHz> <liv> <s> [fec] [<SR>k] [short] [nopilots] [cam|pip|img|live|user]  TS generato sull'ESP: monoscopio standard,
  *        camera, camera in PiP, immagine personalizzata, video personalizzato
  *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
@@ -224,7 +224,7 @@ static void tx_end_note(uint32_t ms, bool stats)
 static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_khz, int amp, const char *fec)
 {
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
-    *lc = (pdx_live_cfg_t){.sr = 333000, .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
+    *lc = (pdx_live_cfg_t){.sr = pdx_cfg_sr(&cfg), .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
                            .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
                            .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0),
@@ -399,7 +399,7 @@ static void handle(char *line)
         if (!es) { printf("ERR monoscopio standard: %s\n", why); return; }
         pdx_s2_t s2;
         if (pdx_s2_init(&s2, "3/4", false, true)) { printf("ERR s2\n"); return; }
-        const double rate = pdx_s2_ts_bitrate(&s2, 333000);
+        const double rate = pdx_s2_ts_bitrate(&s2, pdx_cfg_sr(&cfg));
         pdx_s2_free(&s2);
         static pdx_mux_t mux;
         const char *e = pdx_mux_init(&mux, es, rate, cfg.callsign, "IZ7PDX BEACON", false);
@@ -438,6 +438,12 @@ static void handle(char *line)
             else if (!strcasecmp(argv[i], "img")) { lc.video = PDX_LV_IMG; lc.bg = pdx_media_map(PDX_MEDIA_IMG_USR, NULL); }
             else if (!strcasecmp(argv[i], "live")) { lc.video = PDX_LV_IMG; lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL); lc.ovl_full = true; }
             else if (!strcasecmp(argv[i], "user")) lc.es = pdx_media_map(PDX_MEDIA_ES_USR, NULL);
+            else if (isdigit((unsigned char)argv[i][0]) && toupper((unsigned char)argv[i][strlen(argv[i]) - 1]) == 'K') {
+                const uint32_t sr = (uint32_t)atoi(argv[i]) * 1000u;     /* "500k": symbol rate */
+                if (sr < PDX_RF_SR_MIN || sr > PDX_RF_SR_MAX) { printf("ERR SR %u..%u kS\n", (unsigned)(PDX_RF_SR_MIN / 1000u),
+                                                                       (unsigned)(PDX_RF_SR_MAX / 1000u)); return; }
+                lc.sr = sr;
+            }
             else lc.fec = argv[i];
         }
         const uint32_t secs = (uint32_t)atoi(argv[3]);

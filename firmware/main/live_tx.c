@@ -52,8 +52,8 @@ static void live_overlay(uint8_t *yuyv, int w, int h, void *ctx)
     if (L->cfg->ovl_full) {
         pdx_ovl_text(yuyv, w, h, 6, 4, L->cfg->service, 2);
         const char *loc = L->cfg->locator && L->cfg->locator[0] ? L->cfg->locator : NULL;
-        snprintf(s, sizeof(s), "%.3f MHz  DVB-S2 %s%s%s", (double)L->cfg->freq_khz / 1000.0, L->cfg->fec,
-                 loc ? "  " : "", loc ? loc : "");
+        snprintf(s, sizeof(s), "%.3f MHz  SR%u %s%s%s", (double)L->cfg->freq_khz / 1000.0, (unsigned)(L->cfg->sr / 1000u),
+                 L->cfg->fec, loc ? "  " : "", loc ? loc : "");
         pdx_ovl_text(yuyv, w, h, 6, 40, s, 1);
     }
     if (L->cfg->telem) pdx_ovl_text(yuyv, w, h, 6, L->cfg->ovl_full ? 60 : 4, L->cfg->telem, 1);
