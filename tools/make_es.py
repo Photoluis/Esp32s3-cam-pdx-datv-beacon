@@ -122,7 +122,7 @@ def main():
         table += struct.pack("<B3xIII", k, pts, len(data), len(d))
         data += d
     src = Path(a.video or a.image).stem if (a.video or a.image) else a.callsign
-    label = f"{src} {a.sr // 1000}k".encode("ascii", "replace")[:35]
+    label = f"{src}".encode("ascii", "replace")[:35]                 # senza SR: il monoscopio vale per ogni SR
     hdr = struct.pack("<8sIIIII36s", b"PDXES001", len(units), LOOP_TICKS, 0x24, 0x0F, data_off, label)
     assert len(hdr) == 64
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)
