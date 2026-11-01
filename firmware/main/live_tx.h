@@ -10,6 +10,11 @@
 
 typedef enum { PDX_LV_ES, PDX_LV_CAM, PDX_LV_PIP, PDX_LV_IMG } pdx_live_video_t;
 
+/* SR massimo per i modi dal vivo (camera, PiP, immagine): a 1000 kS il buffer dei simboli in RAM interna (32 KB = 0,13 s)
+ * è più corto della codifica di un fotogramma H.264 (fino a 153 ms) e si svuota (prova del 01/11: immagine assente).
+ * Sopra questo SR si trasmette il monoscopio standard. */
+#define PDX_LIVE_SR_MAX 500000u
+
 typedef struct {
     uint32_t sr;
     const char *fec;                     /* "3/4" ... */

@@ -145,6 +145,9 @@ void pdx_cfg_print(const pdx_cfg_t *c)
         printf("CFG transverter: IF %.3f MHz, OL %.3f MHz, finale %s = %.3f MHz%s\n", c->freq_khz / 1000.0,
                c->lo_khz / 1000.0, c->xvtr == PDX_XVTR_DIFF ? "|OL-IF|" : "OL+IF", fin / 1000.0,
                inv ? " (spettro invertito dal mixer: compensato)" : "");
+    if (pdx_cfg_sr(c) > PDX_LIVE_SR_MAX && (c->cam_s || c->mono_src == PDX_MONO_USR_IMAGE || c->mono_src == PDX_MONO_LIVE))
+        printf("ATTENZIONE a %u kS camera, PiP e immagine non sono disponibili: si trasmette il monoscopio standard\n",
+               (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("CFG SR %u kS | ", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
            "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s\n",
