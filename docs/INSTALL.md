@@ -48,7 +48,7 @@ installed on the computer. Firefox and Safari do not support Web Serial.
 
 ## 2. Windows package
 
-1. Download `ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_Windows.zip` from the
+1. Download `ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_Windows.zip` from the
    [release page](https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/releases) and unzip it.
 2. Double-click:
    - `1_INSTALL_FULL_erase.bat` for the first installation;
@@ -63,9 +63,9 @@ for confirmation the first time (*More info → Run anyway*).
 ```
 python -m pip install esptool
 # first installation (erases settings and custom test cards)
-python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_full.bin
 # update only
-python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_app_only.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_app_only.bin
 ```
 On Linux the port is `/dev/ttyUSB0` (add your user to the `dialout` group); on macOS `/dev/cu.wchusbserial*`.
 

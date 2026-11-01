@@ -50,7 +50,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "NOCALL", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
-        .locator = "JN80PS",   /* locatore di IZ7PDX: da togliere ("") prima di una release pubblica, come NOCALL */
+        .locator = "",         /* nessun locatore di fabbrica (come NOCALL): ognuno imposta il proprio */
     };
 }
 
@@ -345,8 +345,9 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     }
     *sent = true;
     const pdx_rf_stats_t *st = pdx_rf_last_stats();
-    printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u)\n", (unsigned)ms,
-           (unsigned)st->underruns, (unsigned)st->late);
+    const float temp = pdx_temp_read();                   /* a TX appena spenta: per seguire il riscaldamento dal registro */
+    printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u) TEMP %.1f C\n", (unsigned)ms,
+           (unsigned)st->underruns, (unsigned)st->late, isnan(temp) ? -99.0 : (double)temp);
     return ms + 50u >= want;
 }
 

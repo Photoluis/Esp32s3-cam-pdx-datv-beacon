@@ -1,6 +1,8 @@
 /* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * v1.0.0: modulatore I/Q dell'ESP32-S3 (CW, tono, QPSK RRC, simboli DVB-S2 dalla flash) beacon autonomo con configurazione in NVS e
  * interfaccia web.
+ * v1.1.0: symbol rate 125/250/333/500/1000 kS (1000 kS solo monoscopio), QTH locator, livello a cursore (-40..-5 dB),
+ * temperatura nel registro a fine segmento.
  *
  * Comandi sulla UART0 (porta TTL, 115200), uno per riga:
  *   INFO
@@ -65,7 +67,7 @@
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
-#define FW_VERSION "v1.1.0-dev"
+#define FW_VERSION "v1.1.0"
 #define TX_MAX_S   300u
 
 #define BOOT_GPIO 0                 /* pulsante BOOT della scheda: premuto = livello basso */

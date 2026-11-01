@@ -13,7 +13,7 @@ set PORTARG=
 if not "%PORT%"=="" set PORTARG=--port %PORT%
 for %%F in (*_full.bin) do set IMG=%%F
 if "%IMG%"=="" ( echo ERROR: *_full.bin not found & pause & exit /b 1 )
-"%~dp0esptool.exe" --chip esp32s3 %PORTARG% -b 921600 write-flash 0x0 "%IMG%"
+"%~dp0esptool.exe" --chip esp32s3 %PORTARG% -b 460800 write-flash 0x0 "%IMG%"
 if errorlevel 1 (
   echo.
   echo  FAILED. Hold BOOT, press and release RST, release BOOT, then run again.

@@ -11,8 +11,9 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
 
 ## Features
 
-- **DVB-S2 QPSK**, 333 kS/s, FEC 1/2 to 9/10, normal frames with pilots — received with **MER 23–27 dB** on Portsdown 4
-  and Minitiouner. DVB-S2 encoder written from ETSI EN 302 307-1 and verified bit for bit (42/42 test cases).
+- **DVB-S2 QPSK**, symbol rate **125 / 250 / 333 / 500 / 1000 kS/s** (1000 kS with the test card only), FEC 1/2 to
+  9/10, normal frames with pilots — received with **MER 23–27 dB** on Portsdown 4 and Minitiouner (MER 25 at 500 and
+  1000 kS, v1.1.0). DVB-S2 encoder written from ETSI EN 302 307-1 and verified bit for bit (42/42 test cases).
 - **2300–2450 MHz** directly; **IF output for an external mixer** (transverter): set the local oscillator and the final
   frequency is shown in the overlay and in the DVB service name; inverted spectrum is compensated.
 - **Live camera** (H.264 320x240), camera **picture-in-picture** on the test card, standard H.265 test card, test card
@@ -20,7 +21,8 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
   included.
 - **Stand-alone beacon**: test card / camera / pause cycle, automatic start at power-on, output level in dB, RGB status
   LED whose colour "warms up" with the output level (normal, minimum or off for battery/solar operation).
-- **Telemetry overlay** (optional): chip temperature, uptime and cycle number; temperature also on the web page.
+- **Telemetry overlay** (optional): chip temperature, uptime and cycle number; temperature also on the web page and in
+  the serial log at the end of every segment. **QTH locator** in the overlay and in the DVB service provider name.
 - **Web set-up from your phone** in 11 languages (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR) while not transmitting;
   full serial command set.
 
