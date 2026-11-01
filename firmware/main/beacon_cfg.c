@@ -188,7 +188,7 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         char tmp[16];
         snprintf(tmp, sizeof(tmp), "%s%s", value, !strcasecmp(key, "level") && !strpbrk(value, "dD") ? "dB" : "");
         const int a = pdx_parse_amp(tmp);
-        if (a < 1) return "livello da -40 a 0 dB (0 = massimo)";
+        if (a < 1 || pdx_amp_to_level(a) > PDX_LEVEL_CFG_MAX_DB + 0.05) return "livello da -40 a -5 dB";
         c->amp = (int16_t)a;
     } else if (!strcasecmp(key, "dci") || !strcasecmp(key, "dcq")) {
         if (!parse_int(value, -100, 100, &v)) return "dc -100..100";

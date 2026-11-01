@@ -51,6 +51,7 @@ enum { PDX_CAMMODE_FULL, PDX_CAMMODE_PIP };
 /* livello di uscita in dB TEORICI rispetto al massimo (ampiezza PDX_RF_AMP_MAX = 0 dB, -6 dB = metà ampiezza):
  * il valore 1..480 è l'ampiezza digitale del DAC; i dBm reali sul connettore richiedono una taratura misurata */
 #define PDX_LEVEL_MIN_DB (-40.0)
+#define PDX_LEVEL_CFG_MAX_DB (-5.0)   /* massimo per il beacon: oltre comincia la compressione (prova del 30/10) */
 int pdx_level_to_amp(double db);
 double pdx_amp_to_level(int amp);
 /* "-7.6", "-7.6dB" o "0dB" = livello in dB; un numero positivo senza "dB" = ampiezza 1..480; -1 se non valido */
