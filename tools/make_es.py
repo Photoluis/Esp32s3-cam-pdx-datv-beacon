@@ -88,7 +88,7 @@ def main():
         make_symbols.make_ts(SimpleNamespace(callsign=a.callsign, label_freq=a.label_freq, fec=a.fec, fec_label="",
                                              sr=a.sr, image=a.image, video=a.video, no_text=a.no_text,
                                              audio=a.audio, audio_kbps=a.audio_kbps,
-                                             no_band=a.no_band),
+                                             no_band=a.no_band, no_sr=True),
                              bitrate, LOOP_S + 1.0, tsp, keyint=48, loop_s=LOOP_S)
         ts = Path(tsp).read_bytes()
     video = parse_pes(ts, 0x100)

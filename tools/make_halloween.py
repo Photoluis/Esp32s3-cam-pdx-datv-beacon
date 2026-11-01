@@ -153,7 +153,7 @@ def frame(bg, n, call):
     if call:
         text_outline(d, (W // 2, 248), call, F_SUB, (240, 240, 255))
     d.rectangle([0, H - 22, W, H], fill=(10, 4, 14))
-    d.text((8, H - 19), "DVB-S2 QPSK  SR 333 kS  H.265", font=F_SMALL, fill=(255, 150, 40))
+    d.text((8, H - 19), "DVB-S2 QPSK  H.265", font=F_SMALL, fill=(255, 150, 40))   # senza SR: vale per ogni SR
     d.text((W - 8, H - 19), f"FRAME {n + 1:03d}/{N}", font=F_SMALL, fill=(200, 200, 220), anchor="ra")
     return im
 

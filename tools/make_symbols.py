@@ -81,8 +81,10 @@ def make_ts(a, bitrate: float, duration: float, path: str, keyint: int = 50, loo
     video_k = int(bitrate * 0.80 / 1000) - audio_k            # margine per PSI, PCR e riempimento CBR
     font = "C\\:/Windows/Fonts/arialbd.ttf"
     fec_txt = getattr(a, "fec_label", a.fec)
+    # no_sr: monoscopi del beacon (make_es.py), trasmessi a qualsiasi SR: niente SR nell'immagine (lo mostra il ricevitore)
+    sr_txt = "" if getattr(a, "no_sr", False) else f"SR {a.sr // 1000} kS  "
     lines = [a.callsign, f"BEACON DATV  {a.label_freq}" if a.label_freq else "BEACON DATV",
-             f"DVB-S2 QPSK {fec_txt + '  ' if fec_txt else ''}SR {a.sr // 1000} kS  H.265"]
+             f"DVB-S2 QPSK  {fec_txt + '  ' if fec_txt else ''}{sr_txt}H.265"]
     text = ",".join(
         f"drawtext=fontfile='{font}':text='{t}':fontcolor=white:fontsize={56 if k == 0 else 26}:box=1:boxcolor=black@0.6"
         f":boxborderw=8:x=(w-text_w)/2:y={40 if k == 0 else (200 if loop_s else 250) + 36 * (k - 1)}"
