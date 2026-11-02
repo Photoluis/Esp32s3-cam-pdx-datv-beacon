@@ -63,6 +63,7 @@
 #include "led_status.h"
 #include "chip_temp.h"
 #include "rx_s3.h"
+#include "s2rx.h"
 #include "esp_rom_crc.h"
 #include <ctype.h>
 
@@ -86,10 +87,15 @@ typedef struct {
 } rtc_pending_t;
 RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
 /* Parrot P1b: ultima cattura decimata (int8 I/Q) in PSRAM */
-#define RX_BUF_BYTES (6u * 1024u * 1024u)
+#define RX_BUF_BYTES (4300u * 1024u)                  /* 2,1 s a 1 Msps: il resto della PSRAM serve al ricevitore */
 static uint8_t *rx_buf;
 static uint32_t rx_len, rx_fs, rx_lo;
-static const char *current_line = "";      /* riga del comando in esecuzione, prima della divisione in parole */
+/* ambiente del ricevitore DVB-S2 (s2rx.c) */
+#define RXDEC_TS_MAX 2000u
+static void *rxdec_alloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+static void rxdec_free(void *p) { heap_caps_free(p); }
+static void rxdec_log(const char *s) { printf("RXDEC %s\n", s); fflush(stdout); }
+static uint32_t rxdec_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }static const char *current_line = "";      /* riga del comando in esecuzione, prima della divisione in parole */
 
 static uint32_t pending_crc(const rtc_pending_t *p)
 {
@@ -590,6 +596,68 @@ static void handle(char *line)
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
 
+    } else if (!strcasecmp(argv[0], "RXLOAD")) {             /* RXLOAD <byte> <fs>: cattura dal PC in PSRAM (prove) */
+        if (argc < 3) { printf("ERR RXLOAD <byte> <fs>\n"); return; }
+        const uint32_t len = (uint32_t)atoi(argv[1]);
+        if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
+        if (!rx_buf || len > RX_BUF_BYTES) { printf("ERR memoria o lunghezza\n"); return; }
+        pdx_web_stop();
+        printf("RXLOAD pronto a 230400 baud\n");
+        fflush(stdout);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        uart_set_baudrate(UART_NUM_0, 230400);
+        static uint8_t blk[4096 + 12];
+        const uint32_t nblk = (len + 4095u) / 4096u;
+        uint32_t got = 0;
+        int64_t t_last = esp_timer_get_time();
+        uint8_t *seen = calloc(nblk, 1);
+        while (got < nblk && esp_timer_get_time() - t_last < 20000000) {
+            /* cerca A5 5A, poi intestazione, dati e CRC */
+            uint8_t c;
+            if (uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0xA5) continue;
+            if (uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0x5A) continue;
+            if (uart_read_bytes(UART_NUM_0, blk, 6, pdMS_TO_TICKS(200)) != 6) continue;
+            const uint32_t idx = blk[0] | blk[1] << 8 | blk[2] << 16 | (uint32_t)blk[3] << 24, k = blk[4] | blk[5] << 8;
+            if (idx >= nblk || k > 4096u) { const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue; }
+            if (uart_read_bytes(UART_NUM_0, blk, k + 4u, pdMS_TO_TICKS(1000)) != (int)(k + 4u)) {
+                const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue;
+            }
+            uint32_t crc;
+            memcpy(&crc, blk + k, 4);
+            if (esp_rom_crc32_le(0, blk, k) != crc) { const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue; }
+            memcpy(rx_buf + idx * 4096u, blk, k);
+            if (seen && !seen[idx]) { seen[idx] = 1; got++; }
+            const char a = 'K';
+            uart_write_bytes(UART_NUM_0, &a, 1);
+            t_last = esp_timer_get_time();
+        }
+        free(seen);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(300));
+        uart_set_baudrate(UART_NUM_0, 115200);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (got == nblk) { rx_len = len; rx_fs = (uint32_t)atoi(argv[2]); }
+        printf("\nRXLOAD fine: %u/%u blocchi%s\n", (unsigned)got, (unsigned)nblk, got == nblk ? "" : " (incompleto)");
+
+    } else if (!strcasecmp(argv[0], "RXDEC")) {              /* RXDEC [SR]: decodifica DVB-S2 della cattura in PSRAM */
+        if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
+        static uint8_t *ts;
+        static uint8_t ok[RXDEC_TS_MAX];
+        if (!ts) ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+        if (!ts) { printf("ERR memoria\n"); return; }
+        pdx_web_stop();
+        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+        s2rx_report_t rep;
+        printf("RXDEC %u campioni a %u S/s, PSRAM libera %u KB\n", (unsigned)(rx_len / 2u), (unsigned)rx_fs,
+               (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));
+        const uint32_t np = s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, argc >= 2 ? (uint32_t)atoi(argv[1]) : 0u,
+                                     &env, &rep, ts, RXDEC_TS_MAX, ok);
+        printf("RXDEC risultato: rilevato %d SR %u freq %+.1f Hz MER %.1f dB D %.1f frame %d LDPC %d BB %d TS %u (errati %u) "
+               "QRZ %s | tempo %u ms (front-end %u, aggancio %u, frame %u) PSRAM libera %u KB\n", rep.detected,
+               (unsigned)rep.sr, (double)rep.freq_hz, (double)rep.mer_db, (double)rep.d_margin_db, rep.frames, rep.ldpc_ok,
+               rep.bb_ok, (unsigned)np, (unsigned)rep.ts_crc_bad, rep.call[0] ? rep.call : "-", (unsigned)rep.ms_total,
+               (unsigned)rep.ms_front, (unsigned)rep.ms_sync, (unsigned)rep.ms_frames,
+               (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));
     } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* scala dei colori del LED senza TX: da -30 a 0 dB */
         for (int db = -30; db <= 0; db += 2) {
             printf("LED %d dB\n", db);
