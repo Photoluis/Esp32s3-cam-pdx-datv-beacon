@@ -373,19 +373,80 @@ def frame_phase(y, m, v, geom, next_hdr):
     if not pbl:                                                       # senza pilot: quarta potenza per slot, ancorata
         s = y[m + data] * ROT_LUT[R[data - 90]]
         slots = s.reshape(-1, 90)
-        p4 = np.angle(-np.sum(slots ** 4, axis=1)) / 4
-        cur = phs[0]
-        sp, sv = [], []
-        for i, p in enumerate(p4):
-            p = p + np.round((cur - p) / (np.pi / 2)) * (np.pi / 2)
-            sp.append(data[i * 90] + 45.0)
-            sv.append(p)
-            cur = p
+        q4 = -np.sum(slots ** 4, axis=1)
+        p4 = np.angle(q4) / 4
+        rel = np.abs(q4) / (np.sum(np.abs(slots) ** 4, axis=1) + 1e-12)   # 1 = slot pulito, ~0 = disturbato
+        Q = np.pi / 2
+
+        def chain(start, order):
+            out, c = np.empty(len(p4)), start
+            for i in order:
+                p = p4[i] + np.round((c - p4[i]) / Q) * Q
+                out[i] = c = p
+            return out
+
+        sv = chain(phs[0], range(len(p4)))                            # in avanti dal PLHEADER
+        sp = data[::90] + 45.0
+        tail = phs[1:]
+        if len(phs) > 1:
+            # il PLHEADER successivo ha fase assoluta: se la catena in avanti arriva su un altro quadrante c'è stato un
+            # salto di 90 gradi (tipicamente in uno slot colpito da un disturbo): dopo lo slot meno affidabile si usa la
+            # catena all'indietro, che parte dal PLHEADER successivo
+            nh = phs[-1]
+            k = np.round((nh - sv[-1]) / Q)
+            if int(k) % 4 != 0:
+                sb = chain(nh, range(len(p4) - 1, -1, -1))
+                cut = int(np.argmin(rel))
+                sv = np.r_[sv[:cut], sb[cut:]]
+            tail = phs[1:] + 2 * np.pi * np.round((sv[-1] - phs[1:]) / (2 * np.pi))
         allp = np.r_[pts[0], sp, pts[1:]]
-        allv = np.r_[phs[0], sv, phs[1:]]
+        allv = np.r_[phs[0], sv, tail]
         o = np.argsort(allp)
         pts, phs = allp[o], allv[o]
     return np.interp(data.astype(np.float64), pts, phs)
+
+
+_enc_ldpc = {}
+
+
+def syndrome_weight(s, frame, rate):
+    """equazioni di parità LDPC non soddisfatte dalle decisioni grezze sui simboli s (già derotati)."""
+    if (frame, rate) not in _enc_ldpc:
+        _enc_ldpc[(frame, rate)] = s2.Ldpc(frame, rate, 64800 if frame == "normal" else 16200)
+    L = _enc_ldpc[(frame, rate)]
+    hard = np.empty(2 * len(s), np.uint8)
+    hard[0::2] = s.real < 0
+    hard[1::2] = s.imag < 0
+    bits, p = hard[:L.k], hard[L.k:]
+    syn = (np.bincount(L.addr[bits[L.info] == 1], minlength=L.n_k) & 1).astype(np.uint8)
+    syn ^= p
+    syn[1:] ^= p[:-1]
+    return int(syn.sum())
+
+
+def fix_quadrants(s, frame, rate, thr=0.6):
+    """senza pilot un disturbo può far saltare la fase di 90 gradi: dopo ogni tratto disturbato si provano le 4
+    rotazioni del resto del frame e si tiene quella con meno equazioni di parità non soddisfatte."""
+    sl = s.reshape(-1, 90)
+    rel = np.abs(np.sum(sl ** 4, axis=1)) / (np.sum(np.abs(sl) ** 4, axis=1) + 1e-12)
+    bad = np.flatnonzero(rel < thr)
+    if not len(bad):
+        return s
+    cuts = [int(bad[0])] + [int(b) for a, b in zip(bad, bad[1:]) if b != a + 1]   # inizio di ogni tratto
+    best = syndrome_weight(s, frame, rate)
+    if best == 0:
+        return s
+    for c in cuts:
+        k0 = c * 90
+        trial = []
+        for r in (1j, -1, -1j):
+            t = s.copy()
+            t[k0:] *= r
+            trial.append((syndrome_weight(t, frame, rate), t))
+        w, t = min(trial, key=lambda x: x[0])
+        if w < best:
+            best, s = w, t
+    return s
 
 
 def demod_frame(y, m, v, geom, next_hdr, ldpc_iter):
@@ -395,6 +456,8 @@ def demod_frame(y, m, v, geom, next_hdr, ldpc_iter):
     R = rotation(L - 90)
     ph = frame_phase(y, m, v, geom, next_hdr)
     s = y[m + data] * np.exp(-1j * ph) * ROT_LUT[R[data - 90]]
+    if not pbl:
+        s = fix_quadrants(s, frame, rate)
     # momenti M2/M4 (stima di SNR non distorta anche sotto soglia)
     m2 = np.mean(np.abs(s) ** 2)
     m4 = np.mean(np.abs(s) ** 4)
@@ -403,9 +466,16 @@ def demod_frame(y, m, v, geom, next_hdr, ldpc_iter):
     A = np.sqrt(S / 2)
     sigma2 = N / 2
     mer = 10 * np.log10(S / N)
+    # rumore stimato tratto per tratto (finestra di 2 slot): i disturbi impulsivi, per esempio i beacon Wi-Fi ogni
+    # 102,4 ms, abbassano l'affidabilità solo dei simboli colpiti e l'LDPC li ricostruisce dagli altri
+    ideal = A * (np.sign(s.real) + 1j * np.sign(s.imag))
+    e2 = np.abs(s - ideal) ** 2 / 2
+    win = 180
+    loc = np.convolve(e2, np.ones(win) / win, mode="same")
+    sig_loc = np.maximum(loc, sigma2)                                  # mai più fiducia della media del frame
     llr = np.empty(2 * len(s), np.float32)
-    llr[0::2] = 2 * A * s.real / sigma2
-    llr[1::2] = 2 * A * s.imag / sigma2
+    llr[0::2] = 2 * A * s.real / sig_loc
+    llr[1::2] = 2 * A * s.imag / sig_loc
     dec = ldpc_for(frame, rate)
     cw, it, ok = dec.decode(llr, ldpc_iter)
     return {"mer": mer, "iter": it, "ldpc_ok": ok, "bits": cw, "const": s / A}
@@ -632,6 +702,31 @@ def find_call(info):
 
 # --------------------------------------------------------------------------------------------- catena
 
+def pick_sr(x, fs, det, probe_s=0.25):
+    """symbol rate: se la larghezza a -3 dB è vicina (5%) a un valore standard si usa quello; altrimenti (calo del
+    filtro del ricevitore, segnale reale) si provano gli SR standard entro +-35% e si tiene quello con l'aggancio dei
+    PLHEADER più forte su un tratto breve della cattura."""
+    w = det["width"]
+    near = min(SR_STD, key=lambda s: abs(s - w) / s)
+    if abs(near - w) / near < 0.05:
+        return near
+    cands = [s for s in SR_STD if 0.65 * w <= s <= 1.35 * w and 2 * s <= fs] or [snap_sr(w)]
+    seg = x[: int(probe_s * fs)]
+    best, best_m = cands[0], -1.0
+    for s in cands:
+        r = matched(seg, fs, det["center"], s)
+        d = fine_freq(r, 4 * s, max_hz=0.03 * s)
+        r *= np.exp(-2j * np.pi * d * np.arange(len(r)) / (4 * s))
+        y, _ = symbols(r)
+        if len(y) < 200:
+            continue
+        y = y / np.sqrt(np.mean(np.abs(y) ** 2))
+        m = float(np.max(sync_metric(y)))
+        if m > best_m:
+            best, best_m = s, m
+    return best
+
+
 def receive(x, fs, sr_hint=None, max_frames=None, ldpc_iter=50, log=print):
     t0 = time.time()
     rep = {"detected": False}
@@ -639,7 +734,7 @@ def receive(x, fs, sr_hint=None, max_frames=None, ldpc_iter=50, log=print):
     if det is None:
         log("nessun segnale")
         return rep, [], None
-    sr = sr_hint or snap_sr(det["width"])
+    sr = sr_hint or pick_sr(x, fs, det)
     rep.update(detected=True, peak_db=round(det["peak_db"], 1), width_hz=round(det["width"]), sr_coarse=sr,
                fc_coarse=round(det["center"]))
     log(f"segnale: centro {det['center']:+.0f} Hz, larghezza -3 dB {det['width']:.0f} Hz -> SR {sr}, "
@@ -661,8 +756,9 @@ def receive(x, fs, sr_hint=None, max_frames=None, ldpc_iter=50, log=print):
     y = y / np.sqrt(np.mean(np.abs(y) ** 2))
     metric = sync_metric(y)
     hdrs = find_headers(y, metric)
-    if not hdrs:
-        log("nessun PLHEADER")
+    if len(hdrs) < 3:                                                 # meno di 3 PLHEADER concatenati: non è DVB-S2
+        log("nessun PLHEADER" if not hdrs else f"solo {len(hdrs)} PLHEADER: segnale non riconosciuto")
+        rep["detected"] = False
         return rep, [], None
     v0 = hdrs[len(hdrs) // 2][1]
     geom0 = frame_geom(v0)

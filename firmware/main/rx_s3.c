@@ -566,11 +566,11 @@ const char *pdx_rx_stream(int8_t *out, uint32_t n_out, unsigned decim, unsigned 
         int32_t mi, mq;
         rx_dc(&mi, &mq);
         st->dc_i = mi; st->dc_q = mq;
-        /* CIC3 /16: guadagno 4096; la media è in 1/1024 di conteggio */
+        /* somma di 4 coppie + CIC3 /4: guadagno 4 x 64 = 256; la media è in 1/1024 di conteggio */
         memset(&ch_i, 0, sizeof(ch_i));
         memset((void *)&job, 0, sizeof(job));
-        ch_i.dc = mi * 4; ch_i.shift = shift; ch_i.out = out;
-        job.q.dc = mq * 4; job.q.shift = shift; job.q.out = out + 1;
+        ch_i.dc = mi / 4; ch_i.shift = shift; ch_i.out = out;
+        job.q.dc = mq / 4; job.q.shift = shift; job.q.out = out + 1;
         if (xTaskCreatePinnedToCore(core1_task, "rx_q", 3072, NULL, configMAX_PRIORITIES - 1, NULL, 1) != pdPASS)
             return "task del core 1 non creato";
         while (job.ready != 1) vTaskDelay(1);

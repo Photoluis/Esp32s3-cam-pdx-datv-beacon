@@ -497,7 +497,7 @@ static void handle(char *line)
         const double mhz = atof(argv[1]);
         const unsigned gain = (unsigned)atoi(argv[2]), ms = (unsigned)atoi(argv[3]);
         const unsigned decim = argc >= 5 ? (unsigned)atoi(argv[4]) : 16, order = argc >= 6 ? (unsigned)atoi(argv[5]) : 3;
-        const unsigned shift = argc >= 7 ? (unsigned)atoi(argv[6]) : decim == 16 ? (order == 3 ? 11u : 4u) : (order == 3 ? 3u : 2u);
+        const unsigned shift = argc >= 7 ? (unsigned)atoi(argv[6]) : decim == 16 ? (order == 3 ? 8u : 4u) : (order == 3 ? 3u : 2u);
         if (mhz < 2210.0 || mhz > 2790.0 || gain > 127) { printf("ERR LO 2210..2790 MHz, guadagno 0..127\n"); return; }
         const uint32_t fs = PDX_RX_FS_HZ / (decim ? decim : 16);
         const uint32_t n = (uint32_t)((uint64_t)ms * fs / 1000u);
