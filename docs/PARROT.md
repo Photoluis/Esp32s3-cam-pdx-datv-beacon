@@ -31,8 +31,8 @@ camera, eventualmente con un fotogramma del segnale ricevuto in PiP.
 
 | Fase | Contenuto | Stato |
 |---|---|---|
-| P0 | Ricevitore DVB-S2 di prova sul PC (Python) su catture sintetiche | **fatta**, 14/14 — [docs/PARROT_P0.md](docs/PARROT_P0.md) |
-| P0b | Catture multiple, scelta della migliore, IDR integra, catture che partono a metà GOP | da fare (solo PC) |
+| P0 | Ricevitore DVB-S2 di prova sul PC (Python) su catture sintetiche | **fatta**, 14/14 — [PARROT_P0.md](PARROT_P0.md) |
+| P0b | Catture multiple, scelta della migliore, IDR integra, catture che partono a metà GOP | **fatta**, 7/7 — [PARROT_P0b.md](PARROT_P0b.md) |
 | P1 | Firmware di cattura RX sull'S3, cattura inviata al PC e decodificata con `s2_rx.py`; sensibilità; passaggio TX↔RX | da fare (serve la nuova scheda + TX DVB-S2 di prova autorizzata) |
 | P2 | Ricevitore in C nel firmware (FIR polifase, LDPC, TS, SDT), consumi per il solare | da fare |
 | P3 | Ciclo Parrot completo stand-alone | da fare |

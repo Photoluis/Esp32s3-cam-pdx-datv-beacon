@@ -58,7 +58,8 @@ def run_case(n, name, kw):
     same = sum(1 for p in ts if p in spk)
     if const is not None:
         s2_rx.const_png(const, OUT / f"p0_{n:02d}_const.png")
-    return {"case": name, **{k: kw.get(k) for k in ("sr", "fec", "esn0", "df", "ppm")}, "rx": rep,
+    return {"case": name, **{k: kw.get(k) for k in ("sr", "fec", "esn0", "df", "ppm")},
+            "rx": {k: v for k, v in rep.items() if not k.startswith("_")},
             "ts_identical": same, "ts_total": len(ts), "rx_seconds": round(dt, 1)}
 
 

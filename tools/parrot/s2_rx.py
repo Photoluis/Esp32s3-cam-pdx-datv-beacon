@@ -436,11 +436,14 @@ def _enc_cache(frame, rate):
 # --------------------------------------------------------------------------------------------- TS
 
 class TsAssembler:
+    """ricostruisce i pacchetti TS; flags[i] = True (CRC-8 buono), False (errato), None (non verificabile: primo pacchetto
+    dopo un buco)."""
+
     def __init__(self):
         self.buf = bytearray()
         self.aligned = False
         self.prev = None
-        self.packets, self.crc_ok, self.crc_bad = [], 0, 0
+        self.packets, self.flags, self.crc_ok, self.crc_bad = [], [], 0, 0
 
     def push(self, bb):
         if bb is None or "data" not in bb:
@@ -459,13 +462,19 @@ class TsAssembler:
         while len(self.buf) >= 188:
             u = bytes(self.buf[:188])
             del self.buf[:188]
+            flag = None
             if self.prev is not None:
-                if s2.crc8(self.prev[1:]) == u[0]:
+                flag = s2.crc8(self.prev[1:]) == u[0]
+                if flag:
                     self.crc_ok += 1
                 else:
                     self.crc_bad += 1
             self.prev = u
             self.packets.append(b"\x47" + u[1:])
+            # il CRC nel pacchetto i protegge il pacchetto i-1: si assegna l'esito al precedente
+            if flag is not None and self.flags:
+                self.flags[-1] = flag
+            self.flags.append(None)
 
 
 def _dvb_str(b):
@@ -535,6 +544,81 @@ def parse_ts(packets):
                     j += 2 + ln
                 i = end
     return info
+
+
+def _irap(pes: bytes, st: int):
+    """se il PES contiene un'immagine chiave (H.264 IDR, H.265 IRAP) restituisce il flusso elementare dell'immagine."""
+    if len(pes) < 9 or pes[:3] != b"\x00\x00\x01":
+        return None
+    es = bytes(pes[9 + pes[8]:])
+    i = es.find(b"\x00\x00\x01")
+    while 0 <= i < len(es) - 3:
+        h = es[i + 3]
+        if (st == 0x1B and (h & 0x1F) == 5) or (st == 0x24 and 16 <= ((h >> 1) & 0x3F) <= 21):
+            return {"codec": "H.264" if st == 0x1B else "H.265", "es": es}
+        i = es.find(b"\x00\x00\x01", i + 3)
+    return None
+
+
+def video_keyframe(packets, flags, info):
+    """prima immagine chiave del video con TUTTI i pacchetti del suo PES a CRC buono e contatori di continuità in ordine;
+    None se nella cattura non ce n'è una integra (il PiP userà la costellazione)."""
+    vs = [s for s in info["streams"] if s["type"] in (0x1B, 0x24)]
+    if not vs:
+        return None
+    vpid, st = vs[0]["pid"], vs[0]["type"]
+    pes, good, cc_prev = None, True, None
+    for p, f in zip(packets, flags):
+        if (((p[1] & 0x1F) << 8) | p[2]) != vpid:
+            continue
+        afc, cc = (p[3] >> 4) & 3, p[3] & 0x0F
+        off = 4 + (1 + p[4] if afc & 2 else 0)
+        if p[1] & 0x40:                                               # inizio di un nuovo PES: chiude il precedente
+            if pes is not None and good:
+                r = _irap(pes, st)
+                if r:
+                    return r
+            pes, good = bytearray(), True
+        elif pes is None:
+            continue                                                  # cattura iniziata a metà di un PES
+        if f is not True:
+            good = False
+        if afc & 1:
+            if cc_prev is not None and cc != (cc_prev + 1) & 0x0F:
+                good = False
+            cc_prev = cc
+            if off < 188:
+                pes += p[off:]
+    return None
+
+
+def best_capture(results):
+    """tra più catture: prima quelle con QRZ letto, poi senza errori CRC, poi con immagine chiave, poi MER più alto."""
+    def key(r):
+        rep = r[0]
+        return (rep.get("call") is not None, rep.get("ts_crc_bad", 1) == 0, rep.get("keyframe") is not None,
+                rep.get("mer_db") or -99)
+    return max(range(len(results)), key=lambda i: key(results[i]))
+
+
+def pip_png(kf, const, path, size=(160, 90)):
+    """PiP del segnale ricevuto: fotogramma chiave H.264 se integro (sull'S3: esp_h264), altrimenti la costellazione
+    (per l'H.265 l'S3 non ha un decodificatore). Sul PC il fotogramma si decodifica con ffmpeg."""
+    import shutil
+    import subprocess
+    import tempfile
+    if kf and kf["codec"] == "H.264" and shutil.which("ffmpeg"):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "kf.h264"
+            src.write_bytes(kf["es"])
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src), "-frames:v", "1",
+                                "-vf", f"scale={size[0]}:{size[1]}", str(path)], capture_output=True)
+            if r.returncode == 0 and Path(path).exists():
+                return "fotogramma H.264"
+    if const is not None:
+        const_png(const, path, size[1])
+        return "costellazione"
+    return None
 
 
 def find_call(info):
@@ -610,6 +694,9 @@ def receive(x, fs, sr_hint=None, max_frames=None, ldpc_iter=50, log=print):
     ts = asm.packets
     tsi = parse_ts(ts)
     call = find_call(tsi)
+    kf = video_keyframe(ts, asm.flags, tsi)
+    rep["keyframe"] = kf["codec"] if kf else None
+    rep["_kf"] = kf
     mer = float(np.median(mers)) if mers else None
     rep.update(frames_demod=done, ldpc_ok=okf, bbheader_ok=bbok, ldpc_iter_mean=round(float(np.mean(iters)), 1) if iters else None,
                mer_db=round(mer, 1) if mer is not None else None,
@@ -671,7 +758,8 @@ def main():
     if a.png and const is not None:
         const_png(const, a.png)
     if a.json:
-        Path(a.json).write_text(json.dumps(rep, indent=1, default=str), encoding="utf-8")
+        Path(a.json).write_text(json.dumps({k: v for k, v in rep.items() if not k.startswith("_")}, indent=1, default=str),
+                                encoding="utf-8")
 
 
 if __name__ == "__main__":

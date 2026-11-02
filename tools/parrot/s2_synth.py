@@ -36,7 +36,7 @@ def rrc_H(f: np.ndarray, sr: float, beta: float = 0.35) -> np.ndarray:
     return h
 
 
-def make_ts(call: str, provider: str, bitrate: float, seconds: float, codec: str, path: Path) -> None:
+def make_ts(call: str, provider: str, bitrate: float, seconds: float, codec: str, path: Path, keyint: int = 25) -> None:
     ff = shutil.which("ffmpeg")
     if not ff:
         raise SystemExit("ffmpeg non trovato")
@@ -45,10 +45,10 @@ def make_ts(call: str, provider: str, bitrate: float, seconds: float, codec: str
     vf = (f"drawtext=fontfile='{font}':text='{call}':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:"
           f"boxborderw=10:x=(w-text_w)/2:y=40,"
           f"drawtext=fontfile='{font}':text='PARROT P0 TEST':fontcolor=yellow:fontsize=28:x=(w-text_w)/2:y=290")
-    venc = (["-c:v", "libx264", "-profile:v", "baseline", "-preset", "veryfast", "-g", "25", "-bf", "0",
+    venc = (["-c:v", "libx264", "-profile:v", "baseline", "-preset", "veryfast", "-g", str(keyint), "-keyint_min", str(keyint), "-sc_threshold", "0", "-bf", "0",
              "-b:v", f"{video_k}k", "-maxrate", f"{video_k}k", "-bufsize", f"{video_k}k"] if codec == "h264" else
             ["-c:v", "libx265", "-preset", "fast", "-b:v", f"{video_k}k",
-             "-x265-params", f"keyint=25:min-keyint=25:bframes=0:vbv-maxrate={video_k}:vbv-bufsize={video_k}:log-level=error"])
+             "-x265-params", f"keyint={keyint}:min-keyint={keyint}:scenecut=0:bframes=0:vbv-maxrate={video_k}:vbv-bufsize={video_k}:log-level=error"])
     cmd = [ff, "-hide_banner", "-loglevel", "error", "-y",
            "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25", "-f", "lavfi", "-i", "sine=frequency=800:sample_rate=48000",
            "-t", f"{seconds:.3f}", "-vf", vf, *venc, "-c:a", "aac", "-b:a", "32k", "-ac", "1",
@@ -81,7 +81,7 @@ def encode_frames(e: "s2.Encoder", ts: bytes, nframes: int):
     return np.concatenate(out_i), np.concatenate(out_q), ts
 
 
-def modulate(si, sq, sr, fs, ppm, df, esn0_db, tau0, phase0, lead_s, tail_s, rms, rng, pn_deg=0.0):
+def modulate(si, sq, sr, fs, ppm, df, esn0_db, tau0, phase0, lead_s, tail_s, rms, rng, pn_deg=0.0, bursts=()):
     sym = (si.astype(np.float64) + 1j * sq) * SQ2
     sps = 4
     n4 = len(sym) * sps
@@ -108,6 +108,12 @@ def modulate(si, sq, sr, fs, ppm, df, esn0_db, tau0, phase0, lead_s, tail_s, rms
     x = np.concatenate((np.zeros(lead, np.complex128), y, np.zeros(tail, np.complex128)))
     sig2 = p * fs / (sr * 10 ** (esn0_db / 10))
     x += np.sqrt(sig2 / 2) * (rng.standard_normal(len(x)) + 1j * rng.standard_normal(len(x)))
+    for t0, dur, db in bursts:                                       # raffiche di disturbo: rumore in più, db sopra il segnale
+        a, b = lead + int(t0 * fs), lead + int((t0 + dur) * fs)
+        b = min(b, len(x))
+        if a < b:
+            s2b = p * 10 ** (db / 10)
+            x[a:b] += np.sqrt(s2b / 2) * (rng.standard_normal(b - a) + 1j * rng.standard_normal(b - a))
     x *= rms / np.sqrt(np.mean(np.abs(x) ** 2))
     q = np.empty(2 * len(x), np.int8)
     q[0::2] = np.clip(np.round(x.real), -127, 127)
@@ -135,20 +141,28 @@ def main():
     p.add_argument("--fs", type=float, default=1e6)
     p.add_argument("--rms", type=float, default=25.0, help="livello rms in conteggi int8")
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--skip", type=float, default=0.0,
+                   help="secondi di segnale scartati all'inizio: la cattura parte a metà di un frame e di un GOP")
+    p.add_argument("--keyint", type=int, default=25, help="distanza tra due immagini chiave, fotogrammi (25 = 1 s)")
+    p.add_argument("--burst", action="append", default=[],
+                   help="raffica di disturbo t:durata:dB (secondi dall'inizio del segnale; dB sopra il segnale), ripetibile")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--keep-ts", help="salva il TS sorgente")
     a = p.parse_args()
 
     e = s2.Encoder(a.fec, "short" if a.short else "normal", not a.nopilots)
     bitrate = e.ts_bitrate(a.sr)
-    nframes = max(2, int(a.seconds * a.sr / e.frame_symbols))
+    nframes = max(2, int((a.seconds + a.skip) * a.sr / e.frame_symbols))
     with tempfile.TemporaryDirectory() as td:
         tsp = Path(td) / "src.ts"
-        make_ts(a.call, a.provider, bitrate, nframes * e.frame_symbols / a.sr + 0.5, a.codec, tsp)
+        make_ts(a.call, a.provider, bitrate, nframes * e.frame_symbols / a.sr + 0.5, a.codec, tsp, a.keyint)
         ts = tsp.read_bytes()
     si, sq, ts = encode_frames(e, ts, nframes)
+    skip = int(a.skip * a.sr)                                        # la cattura parte a metà: si scartano i primi simboli
+    si, sq = si[skip:], sq[skip:]
+    bursts = [tuple(float(v) for v in b.split(":")) for b in a.burst]
     rng = np.random.default_rng(a.seed)
-    q, lead = modulate(si, sq, a.sr, a.fs, a.ppm, a.df, a.esn0, a.tau, 1.0, a.lead, a.tail, a.rms, rng, a.pn)
+    q, lead = modulate(si, sq, a.sr, a.fs, a.ppm, a.df, a.esn0, a.tau, 1.0, a.lead, a.tail, a.rms, rng, a.pn, bursts)
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     q.tofile(out)
