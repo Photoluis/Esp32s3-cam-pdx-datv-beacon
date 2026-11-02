@@ -17,5 +17,15 @@ uint32_t pdx_rx_lo_hz(void);
  * segno; restituisce il numero di coppie scritte dal motore, 0 se non ha scritto nulla.
  * ATTENZIONE: lo spettro è invertito (prova del 02/11): il segnale vero è I - jQ. */
 uint32_t pdx_rx_capture(uint32_t n, const uint32_t **data);
+/* P1b: cattura continua con decimazione in tempo reale sul core 0 (interruzioni sospese).
+ * Filtro CIC di ordine `order` (2 o 3) e decimazione `decim` (8 o 16: 2 o 1 Msps), uscita int8 I/Q interlacciata già
+ * coniugata (spettro dritto), valore >> shift con saturazione. out: n_out campioni complessi (2 byte ciascuno). */
+typedef struct {
+    uint32_t pairs_in, samples_out, overruns, cycles, clipped, max_lag;
+    int32_t dc_i, dc_q;           /* continua misurata prima della cattura, 1/1024 di conteggio */
+    float rms;                    /* valore efficace dell'uscita, conteggi int8 */
+} pdx_rx_stream_stats_t;
+const char *pdx_rx_stream(int8_t *out, uint32_t n_out, unsigned decim, unsigned order, unsigned shift,
+                          pdx_rx_stream_stats_t *st);
 /* guadagni RF e banda base scelti dal selettore (diagnostica) */
 void pdx_rx_gains(unsigned *rf, unsigned *bb);

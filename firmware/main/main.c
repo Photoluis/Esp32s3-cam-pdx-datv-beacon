@@ -85,6 +85,10 @@ typedef struct {
     uint32_t crc;
 } rtc_pending_t;
 RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
+/* Parrot P1b: ultima cattura decimata (int8 I/Q) in PSRAM */
+#define RX_BUF_BYTES (6u * 1024u * 1024u)
+static uint8_t *rx_buf;
+static uint32_t rx_len, rx_fs, rx_lo;
 static const char *current_line = "";      /* riga del comando in esecuzione, prima della divisione in parole */
 
 static uint32_t pending_crc(const rtc_pending_t *p)
@@ -487,6 +491,104 @@ static void handle(char *line)
             printf("\n");
         }
         printf("RXCAP fine (la prossima TX riavvia la scheda per riportare la radio allo stato del modulatore)\n");
+
+    } else if (!strcasecmp(argv[0], "RXSTREAM")) {           /* RXSTREAM <MHz> <guadagno> <ms> [decim 8|16] [ordine 2|3] [shift] */
+        if (argc < 4) { printf("ERR RXSTREAM <MHz> <guadagno> <ms> [decim 8|16] [ordine 2|3] [shift]\n"); return; }
+        const double mhz = atof(argv[1]);
+        const unsigned gain = (unsigned)atoi(argv[2]), ms = (unsigned)atoi(argv[3]);
+        const unsigned decim = argc >= 5 ? (unsigned)atoi(argv[4]) : 16, order = argc >= 6 ? (unsigned)atoi(argv[5]) : 3;
+        const unsigned shift = argc >= 7 ? (unsigned)atoi(argv[6]) : decim == 16 ? (order == 3 ? 11u : 4u) : (order == 3 ? 3u : 2u);
+        if (mhz < 2210.0 || mhz > 2790.0 || gain > 127) { printf("ERR LO 2210..2790 MHz, guadagno 0..127\n"); return; }
+        const uint32_t fs = PDX_RX_FS_HZ / (decim ? decim : 16);
+        const uint32_t n = (uint32_t)((uint64_t)ms * fs / 1000u);
+        if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
+        if (!rx_buf) { printf("ERR memoria PSRAM\n"); return; }
+        if (!n || 2u * n + 8192u > RX_BUF_BYTES) { printf("ERR durata: al massimo %u ms a %u S/s\n", (unsigned)(RX_BUF_BYTES / 2u * 1000u / fs), (unsigned)fs); return; }
+        pdx_web_set_mode("ricezione");
+        pdx_web_stop();
+        pdx_web_mark_radio_dirty();
+        const char *e = pdx_rx_start((uint32_t)(mhz * 1e6 + 0.5), gain);
+        if (e) { printf("ERR RX %s\n", e); return; }
+        printf("RXSTREAM LO %u Hz, %u ms a %u S/s (CIC%u /%u, shift %u)\n", (unsigned)pdx_rx_lo_hz(), ms, (unsigned)fs,
+               order, decim, shift);
+        fflush(stdout);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
+        pdx_rx_stream_stats_t st;
+        e = pdx_rx_stream((int8_t *)rx_buf, n, decim, order, shift, &st);
+        if (e) {
+            extern uint32_t rx_diag[12];
+            printf("ERR %s | blocchi riusciti %u, elaborazione max %u cicli | start %u wi %u wsw %u banco %u segnaposto %u | parole %08x %08x %08x %08x | indice dopo %u | banco nuovo segnaposto %u\n", e,
+                   (unsigned)(rx_diag[4] & 0xFFFFu), (unsigned)rx_diag[11], (unsigned)rx_diag[0], (unsigned)rx_diag[1], (unsigned)rx_diag[2], (unsigned)rx_diag[3], (unsigned)(rx_diag[4] >> 16), (unsigned)rx_diag[5],
+                   (unsigned)rx_diag[6], (unsigned)rx_diag[7], (unsigned)rx_diag[8], (unsigned)rx_diag[9], (unsigned)rx_diag[10]);
+            return;
+        }
+        rx_len = 2u * st.samples_out;
+        rx_fs = fs;
+        rx_lo = pdx_rx_lo_hz();
+        printf("RXSTREAM fine: %u coppie lette, %u campioni, %.2f cicli/coppia, motore oltre il lettore %u volte, "
+               "rms %.1f, saturati %u, ritardo max %u coppie\n", (unsigned)st.pairs_in, (unsigned)st.samples_out,
+               st.pairs_in ? (double)st.cycles / st.pairs_in : 0.0, (unsigned)st.overruns, (double)st.rms,
+               (unsigned)st.clipped, (unsigned)st.max_lag);
+        printf("RXSTREAM primi campioni (I,Q):");
+        for (int k = 0; k < 24; k++) printf(" %d,%d", (int)(int8_t)rx_buf[1000 + 2 * k], (int)(int8_t)rx_buf[1001 + 2 * k]);
+        printf("\n");
+
+    } else if (!strcasecmp(argv[0], "RXBANK")) {             /* RXBANK <valore selezione> <us>: quali banchi scrive il motore */
+        extern void pdx_rx_banktest(uint32_t, uint32_t, uint32_t[4], uint32_t *, uint32_t *);
+        if (argc < 3) { printf("ERR RXBANK <sel> <us>\n"); return; }
+        pdx_web_stop();
+        pdx_web_mark_radio_dirty();
+        const char *e = pdx_rx_start(2375000000u, PDX_RX_GAIN_DEF);
+        if (e) { printf("ERR RX %s\n", e); return; }
+        uint32_t c[4], i0, i1;
+        pdx_rx_banktest((uint32_t)atoi(argv[1]), (uint32_t)atoi(argv[2]), c, &i0, &i1);
+        printf("RXBANK sel %s: scritte banco A(0x3FCC) %u, banco B(0x3FCD) %u, indice %u -> %u\n", argv[1],
+               (unsigned)c[1], (unsigned)c[2], (unsigned)(i0 & 16383u), (unsigned)(i1 & 16383u));
+    } else if (!strcasecmp(argv[0], "RXSWITCH")) {           /* RXSWITCH <usA> <usB>: cambio di banco durante la corsa */
+        extern void pdx_rx_switchtest(uint32_t, uint32_t, uint32_t[8]);
+        if (argc < 3) { printf("ERR RXSWITCH <usA> <usB>\n"); return; }
+        pdx_web_stop();
+        pdx_web_mark_radio_dirty();
+        const char *e = pdx_rx_start(2375000000u, PDX_RX_GAIN_DEF);
+        if (e) { printf("ERR RX %s\n", e); return; }
+        uint32_t o[8];
+        pdx_rx_switchtest((uint32_t)atoi(argv[1]), (uint32_t)atoi(argv[2]), o);
+        printf("RXSWITCH indice: prima del cambio %u, subito dopo %u, dopo 5 us %u, alla fine %u | A: %u coppie (da %u a %u) | "
+               "B: %u coppie (da %u a %u)\n", (unsigned)(o[0] & 16383u), (unsigned)(o[1] & 16383u), (unsigned)(o[2] & 16383u),
+               (unsigned)(o[3] & 16383u), (unsigned)(o[4] & 0xFFFFu), (unsigned)(o[4] >> 16), (unsigned)o[5],
+               (unsigned)(o[6] & 0xFFFFu), (unsigned)(o[6] >> 16), (unsigned)o[7]);
+    } else if (!strcasecmp(argv[0], "RXBENCH")) {            /* RXBENCH <decim> <ordine>: cicli per coppia del decimatore */
+        extern float pdx_rx_bench(unsigned, unsigned, uint32_t);
+        if (argc < 3) { printf("ERR RXBENCH <decim 8|16> <ordine 2|3>\n"); return; }
+        pdx_web_stop();
+        printf("RXBENCH decim %s ordine %s: %.2f cicli/coppia (limite 15,0 a 16 Msps)\n", argv[1], argv[2],
+               (double)pdx_rx_bench((unsigned)atoi(argv[1]), (unsigned)atoi(argv[2]), 20));
+    } else if (!strcasecmp(argv[0], "RXDUMP")) {             /* cattura in binario a 230400 baud, con CRC32 (a 460800 la CH340 perde byte) */
+        if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
+        const uint32_t crc = esp_rom_crc32_le(0, rx_buf, rx_len);
+        printf("RXDUMP %u %08" PRIx32 " %u %u\n", (unsigned)rx_len, crc, (unsigned)rx_fs, (unsigned)rx_lo);
+        fflush(stdout);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        /* RXDUMP [primo blocco] [numero di blocchi]: blocchi da 4 KB, ognuno A5 5A, indice (u32), lunghezza (u16),
+         * dati, CRC32 (u32): il PC richiede solo quelli rovinati */
+        const uint32_t nblk = (rx_len + 4095u) / 4096u;
+        const uint32_t b0 = argc >= 2 ? (uint32_t)atoi(argv[1]) : 0, bn = argc >= 3 ? (uint32_t)atoi(argv[2]) : nblk;
+        uart_set_baudrate(UART_NUM_0, 230400);
+        vTaskDelay(pdMS_TO_TICKS(800));                       /* il PC cambia velocità */
+        for (uint32_t b = b0; b < b0 + bn && b < nblk; b++) {
+            const uint32_t off = b * 4096u, k = rx_len - off < 4096u ? rx_len - off : 4096u;
+            const uint32_t c = esp_rom_crc32_le(0, rx_buf + off, k);
+            const uint8_t h[8] = {0xA5, 0x5A, (uint8_t)b, (uint8_t)(b >> 8), (uint8_t)(b >> 16), (uint8_t)(b >> 24),
+                                  (uint8_t)k, (uint8_t)(k >> 8)};
+            uart_write_bytes(UART_NUM_0, (const char *)h, 8);
+            uart_write_bytes(UART_NUM_0, (const char *)rx_buf + off, k);
+            uart_write_bytes(UART_NUM_0, (const char *)&c, 4);
+        }
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(120000));
+        vTaskDelay(pdMS_TO_TICKS(300));
+        uart_set_baudrate(UART_NUM_0, 115200);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        printf("\nRXDUMP fine\n");
 
     } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* scala dei colori del LED senza TX: da -30 a 0 dB */
         for (int db = -30; db <= 0; db += 2) {
