@@ -56,7 +56,7 @@ typedef struct {
     uint64_t next_psi, next_sdt, next_pcr;   /* in pacchetti */
     uint8_t cc[5];                       /* PAT, PMT, SDT, video, audio */
     uint8_t psi_pending;                 /* 1 = PMT da inviare dopo la PAT */
-    char service[24], provider[24];
+    char service[24], provider[40];
     const pdx_es_header_t *es;
     pdx_es_cursor_t v, a;
     uint32_t late;                       /* PES iniziati dopo il loro tempo di decodifica */

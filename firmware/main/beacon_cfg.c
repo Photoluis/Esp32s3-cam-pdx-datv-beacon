@@ -19,6 +19,9 @@
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
 
+static const uint32_t SR_TAB[PDX_SR_N] = {333000, 125000, 250000, 500000, 1000000};
+uint32_t pdx_cfg_sr(const pdx_cfg_t *c) { return SR_TAB[c->sr_sel < PDX_SR_N ? c->sr_sel : PDX_SR_333]; }
+
 int pdx_level_to_amp(double db)
 {
     if (db > 0.0 || db < PDX_LEVEL_MIN_DB) return -1;
@@ -47,6 +50,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .mono_s = 60, .cam_s = 60, .pause_s = 0, .boot_wait_s = 30, .callsign = "NOCALL", .ap_pass = "beacon13cm",
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
+        .locator = "",         /* nessun locatore di fabbrica (come NOCALL): ognuno imposta il proprio */
     };
 }
 
@@ -81,8 +85,11 @@ const char *pdx_cfg_telemetry(const pdx_cfg_t *c, uint32_t cycle)
 
 const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz)
 {
-    static char s[24];
-    snprintf(s, sizeof(s), "BEACON %.3f MHz", pdx_cfg_final_khz(c, if_khz, NULL) / 1000.0);
+    /* "BEACON 2375.000 MHz JN80PS": il locatore va anche nella SDT, così il ricevitore lo mostra pure con il monoscopio
+     * standard (precodificato, senza sovrimpressione) */
+    static char s[40];
+    snprintf(s, sizeof(s), "BEACON %.3f MHz%s%s", pdx_cfg_final_khz(c, if_khz, NULL) / 1000.0, c->locator[0] ? " " : "",
+             c->locator);
     return s;
 }
 
@@ -138,7 +145,11 @@ void pdx_cfg_print(const pdx_cfg_t *c)
         printf("CFG transverter: IF %.3f MHz, OL %.3f MHz, finale %s = %.3f MHz%s\n", c->freq_khz / 1000.0,
                c->lo_khz / 1000.0, c->xvtr == PDX_XVTR_DIFF ? "|OL-IF|" : "OL+IF", fin / 1000.0,
                inv ? " (spettro invertito dal mixer: compensato)" : "");
-    printf("CFG auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
+    if (pdx_cfg_sr(c) > PDX_LIVE_SR_MAX && (c->cam_s || c->mono_src == PDX_MONO_USR_IMAGE || c->mono_src == PDX_MONO_LIVE))
+        printf("ATTENZIONE a %u kS camera, PiP e immagine non sono disponibili: si trasmette il monoscopio standard\n",
+               (unsigned)(pdx_cfg_sr(c) / 1000u));
+    printf("CFG SR %u kS | ", (unsigned)(pdx_cfg_sr(c) / 1000u));
+    printf("auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
            "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s\n",
            c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
@@ -188,7 +199,7 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         char tmp[16];
         snprintf(tmp, sizeof(tmp), "%s%s", value, !strcasecmp(key, "level") && !strpbrk(value, "dD") ? "dB" : "");
         const int a = pdx_parse_amp(tmp);
-        if (a < 1) return "livello da -40 a 0 dB (0 = massimo)";
+        if (a < 1 || pdx_amp_to_level(a) > PDX_LEVEL_CFG_MAX_DB + 0.05) return "livello da -40 a -5 dB";
         c->amp = (int16_t)a;
     } else if (!strcasecmp(key, "dci") || !strcasecmp(key, "dcq")) {
         if (!parse_int(value, -100, 100, &v)) return "dc -100..100";
@@ -210,6 +221,12 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
                 return "QRZ: lettere, cifre, / e -";
         strcpy(c->callsign, value);
         for (char *p = c->callsign; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+    } else if (!strcasecmp(key, "sr")) {                 /* kS/s: 125 250 333 500 1000 */
+        if (!parse_int(value, 1, 1000, &v)) return "sr 125 250 333 500 1000 (kS)";
+        int k = 0;
+        while (k < PDX_SR_N && SR_TAB[k] != (uint32_t)v * 1000u) k++;
+        if (k == PDX_SR_N) return "sr 125 250 333 500 1000 (kS)";
+        c->sr_sel = (uint8_t)k;
     } else if (!strcasecmp(key, "loc")) {                /* "" o "-" = nessun locatore */
         if (!value[0] || !strcmp(value, "-")) c->locator[0] = 0;
         else if (!locator_ok(value)) return "locatore Maidenhead di 4 o 6 caratteri (es. JN80 o JN80PS), - per toglierlo";
@@ -265,7 +282,7 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem";
+        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem";
     }
     return NULL;
 }
@@ -286,7 +303,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
 {
     bool inv;
     const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
-    pdx_live_cfg_t lc = {.sr = 333000, .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
+    pdx_live_cfg_t lc = {.sr = pdx_cfg_sr(c), .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
                          .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
                          .locator = c->locator,
                          .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
@@ -313,8 +330,8 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     }
     if (!pdx_rf_tune(c->freq_khz)) { printf("BEACON ERR sintonia\n"); return false; }
     const uint32_t want = (uint32_t)(mono ? c->mono_s : c->cam_s) * 1000u;
-    printf("BEACON ciclo %u: %s %.3f MHz SR 333 kS FEC %s livello %.1f dB per %u s\n", (unsigned)cycle,
-           pdx_live_video_name(lc.video), c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp),
+    printf("BEACON ciclo %u: %s %.3f MHz SR %u kS FEC %s livello %.1f dB per %u s\n", (unsigned)cycle,
+           pdx_live_video_name(lc.video), c->freq_khz / 1000.0, (unsigned)(lc.sr / 1000u), c->fec, pdx_amp_to_level(c->amp),
            (unsigned)(want / 1000u));
     if (c->lo_khz) printf("BEACON frequenza finale dopo il mixer %.3f MHz%s\n", fin / 1000.0, inv ? " (spettro compensato)" : "");
     fflush(stdout);
@@ -328,8 +345,9 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     }
     *sent = true;
     const pdx_rf_stats_t *st = pdx_rf_last_stats();
-    printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u)\n", (unsigned)ms,
-           (unsigned)st->underruns, (unsigned)st->late);
+    const float temp = pdx_temp_read();                   /* a TX appena spenta: per seguire il riscaldamento dal registro */
+    printf("BEACON TX OFF dopo %u ms (buffer vuoto %u, campioni in ritardo %u) TEMP %.1f C\n", (unsigned)ms,
+           (unsigned)st->underruns, (unsigned)st->late, isnan(temp) ? -99.0 : (double)temp);
     return ms + 50u >= want;
 }
 

@@ -1,14 +1,14 @@
 {
   "name": "ESP32-S3-CAM_PDX DATV Beacon",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "firmware/v1.0.0/beacon_app.bin", "offset": 0 },
-        { "path": "firmware/v1.0.0/testcard_std.bin", "offset": 8454144 },
-        { "path": "firmware/v1.0.0/pip_bg_std.bin", "offset": 12648448 }
+        { "path": "firmware/v1.1.0/beacon_app.bin", "offset": 0 },
+        { "path": "firmware/v1.1.0/testcard_std.bin", "offset": 8454144 },
+        { "path": "firmware/v1.1.0/pip_bg_std.bin", "offset": 12648448 }
       ]
     }
   ]

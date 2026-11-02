@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0 — 01/11/2026
+
+- **Symbol rate selezionabile:** 125, 250, 333, 500, 1000 kS (`SET sr`, menu nella pagina web, `ESPLAY ... 500k`).
+  500 kS con tutti i modi; 1000 kS solo con il monoscopio standard: camera, PiP e immagine passano da soli al
+  monoscopio (il buffer dei simboli è più corto della codifica di un fotogramma H.264). SR in sovrimpressione.
+  Prove in aria: `docs/TEST_SR_20261101.md` (MER 25 a 500 e 1000 kS, PiP fluido a 500 kS).
+- **QTH locator** (Maidenhead, 4 o 6 caratteri): campo nella pagina web e `SET loc`; in sovrimpressione accanto alla
+  frequenza e nel fornitore della SDT ("BEACON 2375.000 MHz JN80PS"), quindi visibile anche con il monoscopio standard.
+- **Livello con cursore** da −40 a −5 dB (anche il firmware rifiuta valori sopra −5 dB, dove inizia la compressione);
+  campi della correzione DC con la tastiera completa (il segno meno ora si digita anche dall'iPhone).
+- **Temperatura del chip nel registro** alla fine di ogni segmento del beacon ("BEACON TX OFF ... TEMP 55.3 C").
+- **Monoscopi senza SR nell'immagine** (validi a ogni SR): standard e Halloween rigenerati.
+- **Installazione:** pagina dal browser (GitHub Pages, ESP Web Tools), pacchetto Windows con `esptool.exe` e script a
+  doppio clic, guida `docs/INSTALL.md` / `INSTALL_it.md`; foto della scheda e confronto ESP32-C3 / S3.
+- Configurazione salvata compatibile: le impostazioni della v1.0.0 vengono convertite da sole (SR 333 kS, nessun
+  locatore).
+
+Prova termica: circa 20 minuti di ciclo continuo a 1000 kS, −7 dB, senza dissipatore: chip a 55 °C (42 °C a riposo).
+
 ## v1.0.0 — 31/10/2026 (prima pubblicazione)
 
 Prima versione pubblica di **ESP32-S3-CAM_PDX DATV Beacon**.

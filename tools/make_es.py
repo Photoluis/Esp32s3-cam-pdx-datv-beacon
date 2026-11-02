@@ -88,7 +88,7 @@ def main():
         make_symbols.make_ts(SimpleNamespace(callsign=a.callsign, label_freq=a.label_freq, fec=a.fec, fec_label="",
                                              sr=a.sr, image=a.image, video=a.video, no_text=a.no_text,
                                              audio=a.audio, audio_kbps=a.audio_kbps,
-                                             no_band=a.no_band),
+                                             no_band=a.no_band, no_sr=True),
                              bitrate, LOOP_S + 1.0, tsp, keyint=48, loop_s=LOOP_S)
         ts = Path(tsp).read_bytes()
     video = parse_pes(ts, 0x100)
@@ -122,7 +122,7 @@ def main():
         table += struct.pack("<B3xIII", k, pts, len(data), len(d))
         data += d
     src = Path(a.video or a.image).stem if (a.video or a.image) else a.callsign
-    label = f"{src} {a.sr // 1000}k".encode("ascii", "replace")[:35]
+    label = f"{src}".encode("ascii", "replace")[:35]                 # senza SR: il monoscopio vale per ogni SR
     hdr = struct.pack("<8sIIIII36s", b"PDXES001", len(units), LOOP_TICKS, 0x24, 0x0F, data_off, label)
     assert len(hdr) == 64
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)

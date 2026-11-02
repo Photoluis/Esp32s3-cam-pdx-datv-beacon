@@ -24,6 +24,8 @@ compilatore, Arduino IDE né ESP-IDF**.
 - Scheda: ESP32-S3 **N16R8** (16 MB flash, 8 MB PSRAM) con camera OV3660. La scheda provata ha due porte USB-C:
   **COM** (convertitore USB-seriale CH340) e **OTG** (USB nativa). Per programmare e per la console usate **COM**.
 - Un cavo USB-C **dati** (alcuni cavi caricano soltanto).
+- Di fabbrica l'uscita RF di solito è sull'**antenna stampata**, non sul connettore IPEX: leggete
+  [ANTENNA_IPEX.md](ANTENNA_IPEX.md#italiano) prima di collegare un filtro o misurare la potenza.
 - Windows: Gestione dispositivi → *Porte (COM e LPT)* deve mostrare `USB-SERIAL CH340 (COMx)`. Se non compare,
   installate il driver WCH **CH341SER**.
 - Se la programmazione non si collega, entrate a mano in modalità download: tenete premuto **BOOT**, premete e
@@ -48,7 +50,7 @@ computer non si installa nulla. Firefox e Safari non supportano Web Serial.
 
 ## 2. Pacchetto Windows
 
-1. Scaricate `ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_Windows.zip` dalla
+1. Scaricate `ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_Windows.zip` dalla
    [pagina delle release](https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/releases) ed estraetelo.
 2. Doppio clic su:
    - `1_INSTALL_FULL_erase.bat` per la prima installazione;
@@ -63,9 +65,9 @@ SmartScreen può chiedere conferma (*Ulteriori informazioni → Esegui comunque*
 ```
 python -m pip install esptool
 # prima installazione (cancella impostazioni e monoscopi personalizzati)
-python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_full.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_full.bin
 # solo aggiornamento
-python -m esptool --chip esp32s3 --port COM3 -b 921600 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.0.0_app_only.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_app_only.bin
 ```
 Su Linux la porta è `/dev/ttyUSB0` (utente nel gruppo `dialout`); su macOS `/dev/cu.wchusbserial*`.
 

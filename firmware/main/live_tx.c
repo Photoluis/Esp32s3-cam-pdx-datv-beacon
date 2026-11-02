@@ -52,8 +52,8 @@ static void live_overlay(uint8_t *yuyv, int w, int h, void *ctx)
     if (L->cfg->ovl_full) {
         pdx_ovl_text(yuyv, w, h, 6, 4, L->cfg->service, 2);
         const char *loc = L->cfg->locator && L->cfg->locator[0] ? L->cfg->locator : NULL;
-        snprintf(s, sizeof(s), "%.3f MHz  DVB-S2 %s%s%s", (double)L->cfg->freq_khz / 1000.0, L->cfg->fec,
-                 loc ? "  " : "", loc ? loc : "");
+        snprintf(s, sizeof(s), "%.3f MHz  SR%u %s%s%s", (double)L->cfg->freq_khz / 1000.0, (unsigned)(L->cfg->sr / 1000u),
+                 L->cfg->fec, loc ? "  " : "", loc ? loc : "");
         pdx_ovl_text(yuyv, w, h, 6, 40, s, 1);
     }
     if (L->cfg->telem) pdx_ovl_text(yuyv, w, h, 6, L->cfg->ovl_full ? 60 : 4, L->cfg->telem, 1);
@@ -214,6 +214,14 @@ static void live_free(live_t *L)
 uint32_t pdx_live_play(const pdx_live_cfg_t *c, uint32_t ms, pdx_rf_abort_fn abort_fn, const char **why)
 {
     *why = NULL;
+    pdx_live_cfg_t mono;                                  /* deve vivere fino alla fine della TX (L->cfg punta qui) */
+    if (live_video(c) && c->sr > PDX_LIVE_SR_MAX) {
+        printf("LIVE %s non disponibile a %u kS (massimo %u kS): monoscopio standard\n", pdx_live_video_name(c->video),
+               (unsigned)(c->sr / 1000u), (unsigned)(PDX_LIVE_SR_MAX / 1000u));
+        mono = *c;
+        mono.video = PDX_LV_ES;
+        c = &mono;
+    }
     live_t *L = heap_caps_calloc(1, sizeof(live_t), MALLOC_CAP_SPIRAM);
     if (!L) { *why = "memoria"; return 0; }
     const char *e = pdx_s2_init(&L->s2, c->fec, c->shortf, c->pilots);

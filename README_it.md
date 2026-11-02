@@ -9,7 +9,7 @@ sono calcolati sull'ESP stesso.
 
 ![Ricezione con Portsdown 4 e Minitiouner, MER 26 dB](docs/img/test_mer_20261030/05_m9.6dB_MER26.0.jpg)
 
-## Stato (31/10/2026)
+## Stato (01/11/2026, v1.1.0)
 
 | Funzione | Stato |
 |---|---|
@@ -22,6 +22,8 @@ sono calcolati sull'ESP stesso.
 | Uscita come IF verso un mixer esterno, frequenza finale in video e nella SDT | collaudato con OL fittizio; compensazione dello spettro invertito da provare con un mixer vero |
 | LED RGB di stato (colore proporzionale alla potenza; normale, minimo, spento) | collaudato |
 | Telemetria in sovrimpressione (temperatura del chip, accensione, ciclo) | collaudato |
+| Symbol rate 125 / 250 / 333 / 500 / 1000 kS (v1.1.0) | collaudato: 500 kS monoscopio e PiP MER 25; 1000 kS monoscopio MER 25 (camera/PiP a 1000 kS → monoscopio) |
+| QTH locator in sovrimpressione e nel fornitore SDT, livello a cursore −40…−5 dB (v1.1.0) | collaudato |
 
 ## Installazione
 
@@ -47,6 +49,8 @@ Il firmware è scritto con ESP-IDF, non con Arduino: per installarlo non serve l
 - Scheda ESP32-S3 N16R8 (16 MB flash, 8 MB PSRAM) con camera OV3660, microSD, porte USB-C OTG e TTL, LED RGB su GPIO48
   (provata: diymore ESP32-S3-CAM, disposizione Freenove).
 - Antenna per i 13 cm. **Per l'uso in aria è necessario un filtro passa-banda** sull'uscita: il DAC genera immagini.
+- **Uscita RF di fabbrica sull'antenna stampata:** per usare il connettore IPEX (necessario per il filtro e per le
+  misure di potenza) va spostato un minuscolo componente 0402 sul modulo — vedi [docs/ANTENNA_IPEX.md](docs/ANTENNA_IPEX.md#italiano).
 - Ricevitore DVB-S2 per la prova (es. Minitiouner / Portsdown 4).
 
 ![Scheda ESP32-S3-CAM N16R8 con camera OV3660, porte USB-C COM (CH340) e OTG](docs/img/board_esp32s3_cam_n16r8.jpg)
