@@ -18,6 +18,7 @@ bool pdx_web_seen_client(void);            /* true se la pagina è stata aperta 
 /* true se l'access point è stato acceso dall'avvio: dopo il modo AP il DVB-S2 non è più stato agganciato (29/10),
  * quindi prima di una TX la scheda va riavviata (main.c, reboot_and_run) */
 bool pdx_web_radio_dirty(void);
+void pdx_web_mark_radio_dirty(void);   /* la ricezione (Parrot) ha cambiato la PHY: la prossima TX riavvia */
 
 /* accesso alla configurazione condiviso con il server web */
 void pdx_cfg_lock(void);

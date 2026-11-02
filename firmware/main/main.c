@@ -62,6 +62,7 @@
 #include "media_store.h"
 #include "led_status.h"
 #include "chip_temp.h"
+#include "rx_s3.h"
 #include "esp_rom_crc.h"
 #include <ctype.h>
 
@@ -99,7 +100,7 @@ static void reboot_and_run(const char *cmd)
     snprintf(rtc_pending.cmd, sizeof(rtc_pending.cmd), "%s", cmd);
     rtc_pending.magic = RTC_PENDING_MAGIC;
     rtc_pending.crc = pending_crc(&rtc_pending);
-    printf("RIAVVIO per TX con la radio pulita (access point usato): poi \"%s\"\n", cmd);
+    printf("RIAVVIO per TX con la radio pulita (access point o ricezione usati): poi \"%s\"\n", cmd);
     fflush(stdout);
     uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
     esp_restart();
@@ -460,6 +461,32 @@ static void handle(char *line)
         const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);
         if (why) printf("ERR %s\n", why);
         tx_end_note(ms, true);
+
+    } else if (!strcasecmp(argv[0], "RXCAP")) {               /* RXCAP <MHz> [guadagno 0..127]: Parrot P1a, cattura grezza */
+        if (argc < 2) { printf("ERR RXCAP <MHz LO> [guadagno 0..127]\n"); return; }
+        const double mhz = atof(argv[1]);
+        const unsigned gain = argc >= 3 ? (unsigned)atoi(argv[2]) : PDX_RX_GAIN_DEF;
+        if (mhz < 2210.0 || mhz > 2790.0 || gain > 127) { printf("ERR LO 2210..2790 MHz, guadagno 0..127\n"); return; }
+        pdx_web_set_mode("ricezione");
+        pdx_web_stop();
+        pdx_web_mark_radio_dirty();                           /* la prossima TX riparte da un riavvio */
+        const int64_t t0 = esp_timer_get_time();
+        const char *e = pdx_rx_start((uint32_t)(mhz * 1e6 + 0.5), gain);
+        if (e) { printf("ERR RX %s\n", e); return; }
+        const uint32_t t_tune = (uint32_t)((esp_timer_get_time() - t0) / 1000);
+        const uint32_t *d;
+        const uint32_t w = pdx_rx_capture(PDX_RX_PAIRS, &d);
+        unsigned rf, bb;
+        pdx_rx_gains(&rf, &bb);
+        printf("RXCAP LO %u Hz fs %u guadagno %u (rf %u bb %u) sintonia %u ms, coppie scritte %u/%u\n",
+               (unsigned)pdx_rx_lo_hz(), (unsigned)PDX_RX_FS_HZ, gain, rf, bb, (unsigned)t_tune, (unsigned)w,
+               (unsigned)PDX_RX_PAIRS);
+        for (uint32_t i = 0; i < PDX_RX_PAIRS; i += 64) {
+            printf("R ");
+            for (uint32_t k = 0; k < 64; k++) printf("%08" PRIx32, d[i + k]);
+            printf("\n");
+        }
+        printf("RXCAP fine (la prossima TX riavvia la scheda per riportare la radio allo stato del modulatore)\n");
 
     } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* scala dei colori del LED senza TX: da -30 a 0 dB */
         for (int db = -30; db <= 0; db += 2) {

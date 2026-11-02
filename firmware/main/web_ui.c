@@ -47,6 +47,7 @@ bool pdx_web_take_start_request(void)
 
 bool pdx_web_seen_client(void) { return client_seen; }
 bool pdx_web_radio_dirty(void) { return radio_dirty; }
+void pdx_web_mark_radio_dirty(void) { radio_dirty = true; }
 bool pdx_web_running(void) { return server != NULL; }
 
 /* ------------------------------------------------------------ risposte */
