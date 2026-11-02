@@ -24,6 +24,8 @@ compiler, no Arduino IDE and no ESP-IDF**.
 - Board: ESP32-S3 **N16R8** (16 MB flash, 8 MB PSRAM) with OV3660 camera. The tested board has two USB-C ports:
   **COM** (CH340 USB-serial chip) and **OTG** (native USB). Use **COM** for programming and for the serial console.
 - A USB-C **data** cable (some cables only charge).
+- The RF output usually leaves the factory on the **printed antenna**, not on the IPEX connector: see
+  [ANTENNA_IPEX.md](ANTENNA_IPEX.md) before connecting a filter or measuring power.
 - Windows: Device Manager → *Ports (COM & LPT)* must show `USB-SERIAL CH340 (COMx)`. If it does not, install the
   WCH **CH341SER** driver.
 - If programming fails to connect, enter download mode by hand: hold **BOOT**, press and release **RST**, release

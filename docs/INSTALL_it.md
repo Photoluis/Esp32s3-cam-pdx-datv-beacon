@@ -24,6 +24,8 @@ compilatore, Arduino IDE né ESP-IDF**.
 - Scheda: ESP32-S3 **N16R8** (16 MB flash, 8 MB PSRAM) con camera OV3660. La scheda provata ha due porte USB-C:
   **COM** (convertitore USB-seriale CH340) e **OTG** (USB nativa). Per programmare e per la console usate **COM**.
 - Un cavo USB-C **dati** (alcuni cavi caricano soltanto).
+- Di fabbrica l'uscita RF di solito è sull'**antenna stampata**, non sul connettore IPEX: leggete
+  [ANTENNA_IPEX.md](ANTENNA_IPEX.md#italiano) prima di collegare un filtro o misurare la potenza.
 - Windows: Gestione dispositivi → *Porte (COM e LPT)* deve mostrare `USB-SERIAL CH340 (COMx)`. Se non compare,
   installate il driver WCH **CH341SER**.
 - Se la programmazione non si collega, entrate a mano in modalità download: tenete premuto **BOOT**, premete e

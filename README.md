@@ -49,6 +49,8 @@ The firmware is built with ESP-IDF, not Arduino: no Arduino IDE is needed to ins
 - ESP32-S3 N16R8 board (16 MB flash, 8 MB PSRAM) with OV3660 camera, USB-C and TTL serial, RGB LED on GPIO48
   (tested: diymore ESP32-S3-CAM, Freenove layout).
 - 13 cm antenna. **A band-pass filter on the output is required for on-air use**: the DAC produces images.
+- **RF output on the PCB antenna by default:** to use the IPEX connector (needed for the filter and for power
+  measurements) a tiny 0402 part on the module must be moved — see [docs/ANTENNA_IPEX.md](docs/ANTENNA_IPEX.md).
 - A DVB-S2 receiver (e.g. Minitiouner / Portsdown 4).
 
 ![ESP32-S3-CAM N16R8 board with OV3660 camera, COM (CH340) and OTG USB-C ports](docs/img/board_esp32s3_cam_n16r8.jpg)
