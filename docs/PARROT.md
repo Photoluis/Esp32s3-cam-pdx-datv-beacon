@@ -64,3 +64,13 @@ cd tools\parrot
 
 **Solo per radioamatori con licenza.** Un beacon automatico che risponde da solo va verificato con la propria
 licenza / autorizzazione per stazioni automatiche.
+
+## P3 in RF - 04/11/2026
+
+Primo QSO Parrot completo con la TX dell'utente (2375,000 MHz, SR 333, QPSK 3/4 senza pilot):
+
+- `PARROT 120 60 3`: segnale alla 2ª occhiata, cattura di 2 s, decodifica sulla scheda: QRZ **IZ7PDX** dalla SDT, MER 11,2 dB, D 7,2, LDPC 8/19, 543 pacchetti TS senza errori;
+- riavvio e risposta in TX per 60 s a SR 333 3/4: buffer mai vuoto, 1082 fotogrammi, 0 persi; dall'ascolto alla risposta 45 s;
+- ricevuta dall'utente sul Portsdown 4 con la fascia "QSO IZ7PDX / MER 11.2 dB D7.2 333kS 3/4 -3.7 kHz".
+
+Correzioni emerse nelle prove: rilevatore (continua, cupola del decimatore, disturbi ai bordi), MODCOD letto con la rotazione di frequenza, frequenza fine sui 90 simboli noti dell'header, radio risintonizzata a ogni occhiata.
