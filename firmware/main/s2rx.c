@@ -952,13 +952,26 @@ static uint32_t refine(const symbuf_t *S, int64_t m, int search, float thr, int 
         if (x > best) { best = x; bk = (uint32_t)k; }
     }
     if (best < thr || !bk) return 0;
-    /* PLS code */
-    cf a = {0, 0};
-    for (int n = 0; n < 26; n++) { const cf t = cmulc(sym_at(S, bk + n), hdr_sym(0, n)); a.re += t.re; a.im += t.im; }
-    const float ph = atan2f(a.im, a.re);
-    const cf r = {cosf(-ph), sinf(-ph)};
+    /* PLS code. La frequenza residua non è ancora corretta (S->dphi arriva dopo): con 2 kHz a 333 kS la fase ruota di
+     * oltre 90° lungo l'header e il MODCOD si leggeva sbagliato (3/4 letto 2/3, RF del 04/11). Rotazione per simbolo
+     * dalla correlazione differenziale del SOF, poi fase in coerenza */
+    /* fase coerente delle due metà del SOF (13 simboli ciascuna): la differenza / 13 dà la rotazione per simbolo con
+     * poco rumore (la stima differenziale simbolo per simbolo era troppo rumorosa) */
+    cf h1 = {0, 0}, h2 = {0, 0};
+    for (int n = 0; n < 26; n++) {
+        const cf t = cmulc(sym_at(S, bk + n), hdr_sym(0, n));
+        if (n < 13) { h1.re += t.re; h1.im += t.im; } else { h2.re += t.re; h2.im += t.im; }
+    }
+    const cf dh = cmulc(h2, h1);
+    const float w = atan2f(dh.im, dh.re) / 13.0f;
+    const cf a = {h1.re + h2.re, h1.im + h2.im};
+    const float ph = atan2f(a.im, a.re) - w * 12.5f;                 /* fase riferita al simbolo 0 */
     float aa[64], tot = 0;
-    for (int n = 26; n < 90; n++) { const cf z = cmulc(cmul(sym_at(S, bk + n), r), U90[n]); aa[n - 26] = z.re; tot += fabsf(z.re); }
+    for (int n = 26; n < 90; n++) {
+        const cf r = {cosf(-ph - w * n), sinf(-ph - w * n)};
+        const cf z = cmulc(cmul(sym_at(S, bk + n), r), U90[n]);
+        aa[n - 26] = z.re; tot += fabsf(z.re);
+    }
     int bv = 0;
     float bc = -1e30f;
     for (int v = 0; v < 128; v++) {
@@ -1076,6 +1089,19 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     cf acc = {0, 0};
     for (int i = 0; i < nh; i++) { cf s; hdr_metric(&S, hm[i], &s); acc.re += s.re; acc.im += s.im; }
     S.dphi = atan2f(acc.im, acc.re);
+    {   /* affinamento: con il PLS noto i 90 simboli dell'header sono noti; correlazione a distanza 45 dopo la
+         * correzione grossolana (la stima differenziale da sola sbagliava di ~400 Hz a MER 12, prova del 04/11) */
+        cf q = {0, 0};
+        for (int i = 0; i < nh; i++) {
+            cf t[90];
+            for (int n = 0; n < 90; n++) {
+                const cf r = {cosf(-S.dphi * n), sinf(-S.dphi * n)};
+                t[n] = cmulc(cmul(sym_at(&S, hm[i] + n), r), hdr_sym(hv[i], n));
+            }
+            for (int n = 45; n < 90; n++) { const cf c = cmulc(t[n], t[n - 45]); q.re += c.re; q.im += c.im; }
+        }
+        S.dphi += atan2f(q.im, q.re) / 45.0f;
+    }
     rep->freq_hz = fc + S.dphi * sr / (2 * (float)M_PI);
     rep->detected = true;
     rep->plframes = nh;
