@@ -87,7 +87,7 @@ typedef struct {
 } rtc_pending_t;
 RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
 /* Parrot P1b: ultima cattura decimata (int8 I/Q) in PSRAM */
-#define RX_BUF_BYTES (4300u * 1024u)                  /* 2,1 s a 1 Msps: il resto della PSRAM serve al ricevitore */
+#define RX_BUF_BYTES (3920u * 1024u)                  /* 2,1 s a 1 Msps: il resto della PSRAM serve al ricevitore */
 static uint8_t *rx_buf;
 static uint32_t rx_len, rx_fs, rx_lo;
 /* ambiente del ricevitore DVB-S2 (s2rx.c) */
@@ -606,7 +606,9 @@ static void handle(char *line)
         fflush(stdout);
         uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
         uart_set_baudrate(UART_NUM_0, 230400);
-        static uint8_t blk[4096 + 12];
+        static uint8_t *blk;
+        if (!blk) blk = heap_caps_malloc(4096 + 12, MALLOC_CAP_SPIRAM);
+        if (!blk) { printf("ERR memoria\n"); return; }
         const uint32_t nblk = (len + 4095u) / 4096u;
         uint32_t got = 0;
         int64_t t_last = esp_timer_get_time();
@@ -642,9 +644,10 @@ static void handle(char *line)
     } else if (!strcasecmp(argv[0], "RXDEC")) {              /* RXDEC [SR]: decodifica DVB-S2 della cattura in PSRAM */
         if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
         static uint8_t *ts;
-        static uint8_t ok[RXDEC_TS_MAX];
+        static uint8_t *ok;
+        if (!ok) ok = heap_caps_malloc(RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
         if (!ts) ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
-        if (!ts) { printf("ERR memoria\n"); return; }
+        if (!ts || !ok) { printf("ERR memoria\n"); return; }
         pdx_web_stop();
         s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
         s2rx_report_t rep;

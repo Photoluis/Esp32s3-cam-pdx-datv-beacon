@@ -54,7 +54,7 @@ static const uint32_t SR_STD[] = {66000, 125000, 250000, 333000, 500000, 1000000
 static const uint32_t PLS_ROWS[6] = {0x55555555u, 0x33333333u, 0x0F0F0F0Fu, 0x00FF00FFu, 0x0000FFFFu, 0xFFFFFFFFu};
 static const char PLS_SCR[65] = "0111000110011101100000111100100101010011010000100010110111111010";
 
-static int8_t pls_a[128][64];        /* +-1 dopo lo scrambling */
+static int8_t (*pls_a)[64];          /* 128 x 64, +-1 dopo lo scrambling (PSRAM: la RAM statica è contata) */
 static float sof_a[26];
 static cf U90[90];                   /* pi/2 BPSK: h = a * U */
 static cf dref_sof[26];              /* D[n] = h[n] conj(h[n-1]) per n = 1..25 */
@@ -68,6 +68,8 @@ static float cabs2(cf a) { return a.re * a.re + a.im * a.im; }
 static void init_tables(void)
 {
     if (tables_ready) return;
+    pls_a = E->alloc(128 * 64);
+    if (!pls_a) return;
     const float s = (float)M_SQRT1_2;
     for (int n = 0; n < 90; n++) U90[n] = (cf){(n % 2 == 0 ? 1.0f : -1.0f) * s, s};
     for (int n = 0; n < 26; n++) sof_a[n] = ((SOF_BITS >> (25 - n)) & 1u) ? -1.0f : 1.0f;
@@ -119,7 +121,7 @@ static float hdr_metric(const symbuf_t *S, uint32_t m, cf *sof_sum)
         const cf cur = sym_at(S, m + n);
         if (n < 26 || (n >= 27 && (n & 1))) {
             const cf d = cmulc(cur, prev);
-            en += sqrtf(cabs2(d));
+            en += cabs2(d);                                      /* energia: una sola radice alla fine */
             if (n < 26) { const cf t = cmulc(d, dref_sof[n]); sp.re += t.re; sp.im += t.im; }
             else { const cf t = cmulc(d, dref_pair[(n - 27) / 2]); pp.re += t.re; pp.im += t.im; }
         }
@@ -127,7 +129,8 @@ static float hdr_metric(const symbuf_t *S, uint32_t m, cf *sof_sum)
     }
     if (sof_sum) *sof_sum = sp;
     const float a = cabs2((cf){sp.re + pp.re, sp.im + pp.im}), b = cabs2((cf){sp.re - pp.re, sp.im - pp.im});
-    return en > 0 ? sqrtf(a > b ? a : b) / en : 0;
+    /* |somma| / sqrt(57 * energia): uguale a |somma| / somma dei moduli per simboli di ampiezza costante */
+    return en > 0 ? sqrtf((a > b ? a : b) / (57.0f * en)) : 0;
 }
 
 /* ------------------------------------------------------------------------------------ spettro */
@@ -212,43 +215,70 @@ static float rrc(float t, float b)
     return (sinf(pt * (1 - b)) + 4 * b * t * cosf(pt * (1 + b))) / (pt * (1 - (4 * b * t) * (4 * b * t)));
 }
 
-#define MAXTAP 81
+#define MAXTAP 41
+#define LUT_BITS 10
+static int16_t *cos_lut, *sin_lut;
+static bool lut_ready;
+
 typedef struct {
-    float h[MAXTAP];
+    int16_t h[MAXTAP];               /* coefficienti Q13 */
     int ntap;
-    cf buf[2 * MAXTAP];
+    int16_t bi[2 * MAXTAP], bq[2 * MAXTAP];   /* anello doppio: lettura contigua */
     int pos;
-    cf ph, rot;                       /* mescolatore */
-    uint32_t n;
+    uint32_t phase, inc;             /* mescolatore: 2^32 = 2 pi */
+    int32_t dci, dcq;                /* continua x16 */
+    float gain;
 } fe_t;
 
-static void fe_init(fe_t *f, float fs, float fc, float sr)
+/* virgola fissa: ingresso int8 x16 meno la continua, mescolatore a tabella Q14, FIR con coefficienti Q13 */
+static void fe_init(fe_t *f, float fs, float fc, float sr, float mi, float mq)
 {
+    if (!lut_ready) {
+        cos_lut = E->alloc(2u << LUT_BITS);
+        sin_lut = E->alloc(2u << LUT_BITS);
+        if (!cos_lut || !sin_lut) return;
+        for (int i = 0; i < (1 << LUT_BITS); i++) {
+            const float a = 2.0f * (float)M_PI * (float)i / (float)(1 << LUT_BITS);
+            cos_lut[i] = (int16_t)lroundf(16384.0f * cosf(a));
+            sin_lut[i] = (int16_t)lroundf(16384.0f * sinf(a));
+        }
+        lut_ready = true;
+    }
     memset(f, 0, sizeof(*f));
-    int half = (int)lroundf(6.0f * fs / sr);
+    int half = (int)lroundf(4.0f * fs / sr);                         /* +-4 simboli */
     if (2 * half + 1 > MAXTAP) half = (MAXTAP - 1) / 2;
     f->ntap = 2 * half + 1;
-    float e = 0;
-    for (int t = 0; t < f->ntap; t++) { f->h[t] = rrc((float)(t - half) * sr / fs, 0.35f); e += f->h[t] * f->h[t]; }
-    for (int t = 0; t < f->ntap; t++) f->h[t] /= sqrtf(e);
-    f->ph = (cf){1, 0};
-    const float a = -2.0f * (float)M_PI * fc / fs;
-    f->rot = (cf){cosf(a), sinf(a)};
+    float hf[MAXTAP], hmax = 0;
+    for (int t = 0; t < f->ntap; t++) { hf[t] = rrc((float)(t - half) * sr / fs, 0.35f); if (fabsf(hf[t]) > hmax) hmax = fabsf(hf[t]); }
+    for (int t = 0; t < f->ntap; t++) f->h[t] = (int16_t)lroundf(hf[t] / hmax * 8192.0f);
+    f->inc = (uint32_t)(int64_t)llroundf(-fc / fs * 4294967296.0f);
+    f->dci = (int32_t)lroundf(mi * 16);
+    f->dcq = (int32_t)lroundf(mq * 16);
+    f->gain = 1.0f / (8192.0f * 16.0f);
 }
 
+static inline void fe_seek(fe_t *f, uint32_t n) { f->phase = (uint32_t)((uint64_t)n * f->inc); }
+
 /* un campione d'ingresso -> un campione filtrato */
-static inline cf fe_step(fe_t *f, float xi, float xq)
+static inline cf fe_step(fe_t *f, int8_t xi8, int8_t xq8)
 {
-    const cf x = cmul((cf){xi, xq}, f->ph);
-    f->ph = cmul(f->ph, f->rot);
-    if ((++f->n & 1023u) == 0) { const float m = 1.0f / sqrtf(cabs2(f->ph)); f->ph.re *= m; f->ph.im *= m; }
-    f->buf[f->pos] = x;
-    f->buf[f->pos + f->ntap] = x;                                    /* doppio: lettura contigua */
+    const int32_t x = xi8 * 16 - f->dci, y = xq8 * 16 - f->dcq;
+    const uint32_t li = f->phase >> (32 - LUT_BITS);
+    f->phase += f->inc;
+    const int32_t c = cos_lut[li], s = sin_lut[li];
+    const int16_t mi = (int16_t)((x * c - y * s) >> 14), mq = (int16_t)((x * s + y * c) >> 14);
+    f->bi[f->pos] = mi; f->bi[f->pos + f->ntap] = mi;
+    f->bq[f->pos] = mq; f->bq[f->pos + f->ntap] = mq;
     f->pos = f->pos + 1 == f->ntap ? 0 : f->pos + 1;
-    cf y = {0, 0};
-    const cf *b = &f->buf[f->pos];
-    for (int t = 0; t < f->ntap; t++) { y.re += b[t].re * f->h[t]; y.im += b[t].im * f->h[t]; }
-    return y;
+    const int16_t *bi = &f->bi[f->pos], *bq = &f->bq[f->pos], *h = f->h;
+    int32_t ai0 = 0, ai1 = 0, aq0 = 0, aq1 = 0;
+    int t = 0;
+    for (; t + 1 < f->ntap; t += 2) {                                /* due accumulatori per canale */
+        ai0 += bi[t] * h[t]; ai1 += bi[t + 1] * h[t + 1];
+        aq0 += bq[t] * h[t]; aq1 += bq[t + 1] * h[t + 1];
+    }
+    if (t < f->ntap) { ai0 += bi[t] * h[t]; aq0 += bq[t] * h[t]; }
+    return (cf){(float)(ai0 + ai1) * f->gain, (float)(aq0 + aq1) * f->gain};
 }
 
 #define OM_BLOCK 1024                /* simboli per blocco della stima di temporizzazione */
@@ -264,30 +294,39 @@ static uint32_t front_end(const int8_t *iq, uint32_t n, float fs, float fc, floa
     cf *v = zalloc(nb * sizeof(cf));
     float *tau = zalloc(nb * sizeof(float));
     if (!v || !tau) return 0;
+    const uint32_t t_fe0 = now_ms();
     fe_t f;
-    fe_init(&f, fs, fc, sr);
-    /* passata 1: |y|^2 e^{-j 2 pi n sr / fs} per blocco (Oerder-Meyr) */
-    cf ph = {1, 0};
-    const float a = -2.0f * (float)M_PI * sr / fs;
-    const cf rot = {cosf(a), sinf(a)};
-    double pw = 0;
+    fe_init(&f, fs, fc, sr, mi, mq);
+    /* passata 1: |y|^2 e^{-j 2 pi n sr / fs} (Oerder-Meyr) sui blocchi pari; i dispari si interpolano */
+    const uint32_t om_inc = (uint32_t)(int64_t)llroundf(-sr / fs * 4294967296.0f);
+    float pw = 0, pwb = 0;                                           /* float: niente double emulati */
+    uint32_t np = 0;
     for (uint32_t i = 0; i < n; i++) {
-        const cf y = fe_step(&f, (float)iq[2 * i] - mi, (float)iq[2 * i + 1] - mq);
-        const float e = cabs2(y);
-        pw += e;
         const uint32_t b = (uint32_t)((float)i / sps) / OM_BLOCK;
-        if (b < nb) { v[b].re += e * ph.re; v[b].im += e * ph.im; }
-        ph = cmul(ph, rot);
-        if ((i & 1023u) == 1023u) { const float m = 1.0f / sqrtf(cabs2(ph)); ph.re *= m; ph.im *= m; }
+        if (b & 1u) {                                                /* blocco saltato: si riparte poco prima del pari */
+            const uint32_t nxt = (uint32_t)ceilf((float)((b + 1) * OM_BLOCK) * sps);
+            if (nxt > (uint32_t)f.ntap + 1 && i < nxt - (uint32_t)f.ntap - 1) { i = nxt - (uint32_t)f.ntap - 1; fe_seek(&f, i + 1); continue; }
+        }
+        const cf y = fe_step(&f, iq[2 * i], iq[2 * i + 1]);
+        if ((b & 1u) || b >= nb) continue;
+        const float e = cabs2(y);
+        pwb += e;
+        if ((np & 1023u) == 1023u) { pw += pwb; pwb = 0; }               /* a blocchi: niente perdita di precisione */
+        np++;
+        const uint32_t li = (i * om_inc) >> (32 - LUT_BITS);
+        v[b].re += e * (float)cos_lut[li];
+        v[b].im += e * (float)sin_lut[li];
     }
-    const float meanp = (float)(pw / n);
+    pw += pwb;
+    const float meanp = pw / (float)(np ? np : 1);
     if (pow_out) *pow_out = meanp;
-    for (uint32_t b = 0; b < nb; b++) tau[b] = -atan2f(v[b].im, v[b].re) / (2.0f * (float)M_PI);
-    for (uint32_t b = 1; b < nb; b++) {                              /* svolgimento */
-        float d = tau[b] - tau[b - 1];
+    for (uint32_t b = 0; b < nb; b += 2) tau[b] = -atan2f(v[b].im, v[b].re) / (2.0f * (float)M_PI);
+    for (uint32_t b = 2; b < nb; b += 2) {                           /* svolgimento sui pari */
+        float d = tau[b] - tau[b - 2];
         while (d > 0.5f) { tau[b] -= 1.0f; d -= 1.0f; }
         while (d < -0.5f) { tau[b] += 1.0f; d += 1.0f; }
     }
+    for (uint32_t b = 1; b < nb; b += 2) tau[b] = b + 1 < nb ? (tau[b - 1] + tau[b + 1]) / 2 : tau[b - 1];
     float *ts = zalloc(nb * sizeof(float));                          /* media mobile di 7 */
     for (uint32_t b = 0; b < nb; b++) {
         float s = 0;
@@ -300,14 +339,14 @@ static uint32_t front_end(const int8_t *iq, uint32_t n, float fs, float fc, floa
         const double x = (b + 0.5) * OM_BLOCK;
         sx += x; sy += ts[b]; sxx += x * x; sxy += x * ts[b];
     }
-    *slope = (float)((nb * sxy - sx * sy) / (nb * sxx - sx * sx));
+    *slope = (float)((nb * sxy - sx * sy) / (nb * sxx - sx * sx));    const uint32_t t_p1 = now_ms();
     /* passata 2: simboli per interpolazione cubica sul segnale filtrato (anello di 64 campioni) */
-    fe_init(&f, fs, fc, sr);
+    fe_init(&f, fs, fc, sr, mi, mq);
     cf ring[64];
     uint32_t k = 0, nk = 0;
     const float scale = 40.0f / sqrtf(meanp > 0 ? meanp : 1);
     for (uint32_t i = 0; i < n && nk < sym_max; i++) {
-        ring[i & 63] = fe_step(&f, (float)iq[2 * i] - mi, (float)iq[2 * i + 1] - mq);
+        ring[i & 63] = fe_step(&f, iq[2 * i], iq[2 * i + 1]);
         for (;;) {
             const float bc = (float)k / OM_BLOCK - 0.5f;             /* tau al simbolo k, interpolato tra i blocchi */
             float tk;
@@ -336,6 +375,8 @@ static uint32_t front_end(const int8_t *iq, uint32_t n, float fs, float fc, floa
             if (nk >= sym_max) break;
         }
     }
+    lg("  front-end %u campioni: passata 1 %u ms, passata 2 %u ms (%d coefficienti)", (unsigned)n,
+       (unsigned)(t_p1 - t_fe0), (unsigned)(now_ms() - t_p1), f.ntap);
     E->release(v); E->release(tau); E->release(ts);
     return nk;
 }
@@ -408,16 +449,21 @@ typedef struct {
     uint32_t *rowptr;                /* nk + 1 */
     uint16_t *col;                   /* nedge */
     int16_t *R;                      /* messaggi check -> variabile */
-    int32_t *Lv;                     /* LLR totali */
+    int16_t *Lv;                     /* LLR totali (|Lv| < 4096: 16 bit bastano) */
 } ldpc_t;
 
 static ldpc_t LD;
+static uint32_t *par_bits;            /* bitset della parità (PSRAM), allocato con l'LDPC */
+static const pdx_s2_table_t *LD_tab;
 
 static bool ldpc_build(const geom_t *g)
 {
     if (LD.rowptr && LD.ri == g->ri && LD.shortf == g->shortf) return true;
     if (LD.rowptr) { E->release(LD.rowptr); E->release(LD.col); E->release(LD.R); E->release(LD.Lv); memset(&LD, 0, sizeof(LD)); }
     const pdx_s2_table_t *t = g->tab;
+    LD_tab = t;
+    if (!par_bits) par_bits = E->alloc(((48600 / 32) + 2) * 4);
+    if (!par_bits) return false;
     LD.ri = g->ri; LD.shortf = g->shortf; LD.n = t->nldpc; LD.k = t->kldpc; LD.nk = t->nldpc - t->kldpc;
     LD.rowptr = zalloc((LD.nk + 1) * sizeof(uint32_t));
     if (!LD.rowptr) return false;
@@ -434,7 +480,7 @@ static bool ldpc_build(const geom_t *g)
     LD.nedge = LD.rowptr[LD.nk];
     LD.col = E->alloc(LD.nedge * sizeof(uint16_t));
     LD.R = E->alloc(LD.nedge * sizeof(int16_t));
-    LD.Lv = E->alloc(LD.n * sizeof(int32_t));
+    LD.Lv = E->alloc(LD.n * sizeof(int16_t));
     uint32_t *fill = zalloc(LD.nk * sizeof(uint32_t));
     if (!LD.col || !LD.R || !LD.Lv || !fill) return false;
     a = 0;
@@ -455,14 +501,35 @@ static bool ldpc_build(const geom_t *g)
     return true;
 }
 
-/* equazioni non soddisfatte dalle decisioni (segno di Lv) */
+/* equazioni non soddisfatte dalle decisioni (segno di Lv), calcolate come il codificatore: i bit di informazione in
+ * ordine accumulano la parità in un bitset di 2 KB (RAM interna), senza percorrere gli archi in PSRAM */
 static uint32_t ldpc_syndrome_lv(void)
 {
-    uint32_t bad = 0;
-    for (uint32_t j = 0; j < LD.nk; j++) {
-        uint32_t s = 0;
-        for (uint32_t e = LD.rowptr[j]; e < LD.rowptr[j + 1]; e++) s ^= LD.Lv[LD.col[e]] < 0;
-        bad += s;
+    const pdx_s2_table_t *t = LD_tab;
+    const uint32_t nk = LD.nk, words = nk / 32 + 1;
+    memset(par_bits, 0, words * 4);
+    uint32_t a0 = 0;
+    for (uint32_t r = 0; r < t->nrows; r++) {
+        const uint32_t rl = t->rowlen[r];
+        const uint16_t *ad = t->addr + a0;
+        const int16_t *lv = LD.Lv + 360 * r;
+        for (uint32_t m = 0; m < 360; m++) {
+            if (lv[m] >= 0) continue;
+            const uint32_t mq = m * t->q;
+            for (uint32_t c = 0; c < rl; c++) {
+                uint32_t j = ad[c] + mq;
+                if (j >= nk) j %= nk;
+                par_bits[j >> 5] ^= 1u << (j & 31);
+            }
+        }
+        a0 += rl;
+    }
+    uint32_t bad = 0, prev = 0;
+    const int16_t *p = LD.Lv + LD.k;
+    for (uint32_t j = 0; j < nk; j++) {
+        const uint32_t pj = p[j] < 0;
+        bad += ((par_bits[j >> 5] >> (j & 31)) & 1u) ^ pj ^ prev;
+        prev = pj;
     }
     return bad;
 }
@@ -472,9 +539,15 @@ static int ldpc_decode(int max_iter, bool *ok)
 {
     memset(LD.R, 0, LD.nedge * sizeof(int16_t));
     int16_t q[64];
+    uint32_t best = 0xFFFFFFFFu;
+    int stall = 0;
     for (int it = 0; it <= max_iter; it++) {
-        if (ldpc_syndrome_lv() == 0) { *ok = true; return it; }
+        const uint32_t w = ldpc_syndrome_lv();
+        if (w == 0) { *ok = true; return it; }
         if (it == max_iter) break;
+        /* niente miglioramenti per 3 iterazioni: ci si ferma (di solito il disturbo è nella parità a scala e i dati
+         * sono già giusti: lo dicono i CRC) */
+        if (w < best) { best = w; stall = 0; } else if (++stall >= 3) { *ok = false; return it; }
         for (uint32_t j = 0; j < LD.nk; j++) {
             const uint32_t e0 = LD.rowptr[j], d = LD.rowptr[j + 1] - e0;
             int32_t m1 = 1 << 30, m2 = 1 << 30;
@@ -493,7 +566,7 @@ static int ldpc_decode(int max_iter, bool *ok)
                 const int32_t mag = i == pos ? m2 : m1;
                 const int32_t r = (sg ^ (q[i] < 0)) ? -mag : mag;
                 LD.R[e0 + i] = (int16_t)r;
-                LD.Lv[LD.col[e0 + i]] = q[i] + r;
+                LD.Lv[LD.col[e0 + i]] = (int16_t)(q[i] + r);
             }
         }
     }
@@ -692,6 +765,7 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
     if (!geom(v, &g)) return false;
     if (m + g.L + (has_next ? 90 : 0) > S->nsym) return false;
     if (!gold_init(g.L) || !ldpc_build(&g)) return false;
+    const uint32_t t_d0 = now_ms();
     frame_symbols(S, m, g.L + (has_next ? 90 : 0), W->y);
     const float ph0 = block_phase(W->y, v, 0, 90, NULL);
     const float phn = has_next ? block_phase(W->y, vn, g.L, 90, NULL) : 0;
@@ -729,7 +803,7 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
     } else {
         /* quarta potenza per slot; catena in avanti dal PLHEADER, all'indietro dal successivo se c'è un salto */
         const uint32_t ns = g.slots;
-        static float p4[400], rel[400], fw[400], bw[400];
+        float *p4 = W->ph, *rel = W->ph + 400, *fw = W->ph + 800, *bw = W->ph + 1200;   /* ph è libero fino alla fine */
         for (uint32_t sl = 0; sl < ns; sl++) {
             cf q = {0, 0};
             float den = 0;
@@ -757,22 +831,27 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
         }
         /* punti (indice nei dati): header a -45, slot sl a 45 + 90 sl, header successivo a ndata + 45 */
         const float tail = has_next ? wrap_to(phn, fw[ns - 1], 2 * (float)M_PI) : fw[ns - 1];
-        for (uint32_t d = 0; d < g.ndata; d++) {
-            const float p = (float)d;
-            float ph;
-            if (p < 45) { const float fr = (p + 45) / 90; ph = ph0 + (fw[0] - ph0) * fr; }
-            else if (p >= 45 + 90 * (float)(ns - 1)) {
-                const float fr = (p - (45 + 90 * (float)(ns - 1))) / 90;
-                ph = has_next ? fw[ns - 1] + (tail - fw[ns - 1]) * fr : fw[ns - 1];
-            } else {
-                const float sc = (p - 45) / 90;
-                const uint32_t i = (uint32_t)sc;
-                const float fr = sc - (float)i;
-                ph = fw[i] + (fw[i + 1] - fw[i]) * fr;
+        /* tra due punti la fase è lineare: un fasore iniziale e un passo costante per simbolo (niente seno e coseno
+         * per ogni simbolo) */
+        for (uint32_t kn = 0; kn <= ns; kn++) {
+            const float x0 = kn == 0 ? -45.0f : 45.0f + 90.0f * (float)(kn - 1);
+            const float v0 = kn == 0 ? ph0 : fw[kn - 1];
+            float x1, v1;
+            if (kn < ns) { x1 = 45.0f + 90.0f * (float)kn; v1 = fw[kn]; }
+            else { x1 = (float)g.ndata + 45.0f; v1 = has_next ? tail : v0; }
+            const int32_t d0 = x0 < 0 ? 0 : (int32_t)ceilf(x0);
+            int32_t d1 = (int32_t)ceilf(x1);
+            if (d1 > (int32_t)g.ndata) d1 = (int32_t)g.ndata;
+            if (d0 >= d1) continue;
+            const float slope = (v1 - v0) / (x1 - x0);
+            const float p0 = v0 + slope * ((float)d0 - x0);
+            cf r = {cosf(-p0), sinf(-p0)};
+            const cf step = {cosf(-slope), sinf(-slope)};
+            for (int32_t d = d0; d < d1; d++) {
+                const uint32_t pos = 90 + (uint32_t)d;
+                W->s[d] = cmul(cmul(W->y[pos], r), JM[gold_R[pos - 90]]);
+                r = cmul(r, step);
             }
-            const uint32_t pos = 90 + d;
-            const cf r = {cosf(-ph), sinf(-ph)};
-            W->s[d] = cmul(cmul(W->y[pos], r), JM[gold_R[pos - 90]]);
         }
         /* dopo ogni tratto disturbato: rotazione del resto scelta con la sindrome */
         uint32_t best = syndrome_sym(W->s, g.ndata);
@@ -791,18 +870,18 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
         }
     }
     /* MER (momenti M2/M4), rumore locale, LLR */
-    double m2 = 0, m4 = 0;
-    for (uint32_t d = 0; d < g.ndata; d++) { const double e = cabs2(W->s[d]); m2 += e; m4 += e * e; }
+    float m2 = 0, m4 = 0;
+    for (uint32_t d = 0; d < g.ndata; d++) { const float e = cabs2(W->s[d]); m2 += e; m4 += e * e; }
     m2 /= g.ndata; m4 /= g.ndata;
-    double S2 = 2 * m2 * m2 - m4;
-    if (S2 < 1e-12 * m2 * m2) S2 = 1e-12 * m2 * m2;
-    const double Sg = sqrt(S2);
-    double N = m2 - Sg;
-    if (N < 1e-9 * m2) N = 1e-9 * m2;
-    const float A = (float)sqrt(Sg / 2), sig2 = (float)(N / 2);
-    res->mer = (float)(10 * log10(Sg / N));
+    float S2 = 2 * m2 * m2 - m4;
+    if (S2 < 1e-12f * m2 * m2) S2 = 1e-12f * m2 * m2;
+    const float Sg = sqrtf(S2);
+    float N = m2 - Sg;
+    if (N < 1e-9f * m2) N = 1e-9f * m2;
+    const float A = sqrtf(Sg / 2), sig2 = N / 2;
+    res->mer = 10.0f * log10f(Sg / N);
     const uint32_t win = 180;
-    double run = 0;
+    float run = 0;
     for (uint32_t d = 0; d < g.ndata; d++) {
         const float ei = W->s[d].re - (W->s[d].re < 0 ? -A : A), eq = W->s[d].im - (W->s[d].im < 0 ? -A : A);
         W->loc[d] = (ei * ei + eq * eq) / 2;
@@ -813,7 +892,7 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
         if (d >= win / 2) {
             const uint32_t c = d - win / 2;
             const uint32_t lo = d >= win ? d - win + 1 : 0, hi = d < g.ndata ? d : g.ndata - 1;
-            float v = (float)(run / (double)(hi - lo + 1));
+            float v = run / (float)(hi - lo + 1);
             W->ph[c] = v > sig2 ? v : sig2;                          /* riuso di ph come rumore locale */
         }
     }
@@ -823,10 +902,13 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
         float li = W->s[d].re * k, lq = W->s[d].im * k;
         li = li > LLR_MAX ? LLR_MAX : li < -LLR_MAX ? -LLR_MAX : li;
         lq = lq > LLR_MAX ? LLR_MAX : lq < -LLR_MAX ? -LLR_MAX : lq;
-        LD.Lv[2 * d] = (int32_t)lrintf(li);
-        LD.Lv[2 * d + 1] = (int32_t)lrintf(lq);
+        LD.Lv[2 * d] = (int16_t)lrintf(li);
+        LD.Lv[2 * d + 1] = (int16_t)lrintf(lq);
     }
-    res->iter = ldpc_decode(30, &res->ok);
+    const uint32_t t_l0 = now_ms();
+    res->iter = ldpc_decode(10, &res->ok);
+    lg("  frame: fase+LLR %u ms, LDPC %u ms (%d iterazioni, %s)", (unsigned)(t_l0 - t_d0), (unsigned)(now_ms() - t_l0),
+       res->iter, res->ok ? "ok" : "no");
     for (uint32_t i = 0; i < g.tab->kbch; i++) W->bits[i] = LD.Lv[i] < 0;
     return true;
 }
@@ -864,6 +946,13 @@ static uint32_t refine(const symbuf_t *S, int64_t m, int search, float thr, int 
     return bk;
 }
 
+/* a fine decodifica: tutta la memoria grande torna libera (la prossima cattura può essere più lunga) */
+static void release_all(void)
+{
+    if (LD.rowptr) { E->release(LD.rowptr); E->release(LD.col); E->release(LD.R); E->release(LD.Lv); }
+    memset(&LD, 0, sizeof(LD));
+    if (gold_R) { E->release(gold_R); gold_R = NULL; gold_len = 0; }
+}
 #define MAXHDR 128
 uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, const s2rx_env_t *env,
                   s2rx_report_t *rep, uint8_t *ts_out, uint32_t ts_max, uint8_t *ts_ok)
@@ -872,9 +961,9 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     memset(rep, 0, sizeof(*rep));
     init_tables();
     const uint32_t t0 = now_ms();
-    double si = 0, sq = 0;
+    int64_t si = 0, sq = 0;
     for (uint32_t i = 0; i < n; i++) { si += iq[2 * i]; sq += iq[2 * i + 1]; }
-    const float mi = (float)(si / n), mq = (float)(sq / n);
+    const float mi = (float)((double)si / n), mq = (float)((double)sq / n);
     float fc, width, pk;
     if (!detect(iq, n, fs, mi, mq, &fc, &width, &pk)) { lg("nessun segnale"); return 0; }
     rep->peak_db = pk; rep->width_hz = width;
@@ -883,10 +972,10 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     if (!sr_hint) {
         uint32_t near = SR_STD[0];
         for (uint32_t i = 0; i < NSR; i++) if (fabsf((float)SR_STD[i] - width) / SR_STD[i] < fabsf((float)near - width) / near) near = SR_STD[i];
-        if (fabsf((float)near - width) / near < 0.05f) sr = (float)near;
+        if (fabsf((float)near - width) / near < 0.10f) sr = (float)near;   /* entro il 10%: niente prove */
         else {
             float bm = -1;
-            const uint32_t nprobe = (uint32_t)(0.25f * fs) < n ? (uint32_t)(0.25f * fs) : n;
+            const uint32_t nprobe = (uint32_t)(0.15f * fs) < n ? (uint32_t)(0.15f * fs) : n;
             int8_t *tmp = E->alloc(2 * (size_t)(nprobe / 2 + 16));
             for (uint32_t i = 0; i < NSR && tmp; i++) {
                 const float s = (float)SR_STD[i];
@@ -1030,6 +1119,7 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
        rep->call[0] ? rep->call : "-", rep->vtype, rep->atype);
     E->release(S.sym);
     E->release(W.y); E->release(W.s); E->release(W.ph); E->release(W.loc); E->release(W.bits); E->release(W.df);
+    release_all();
     rep->ms_total = now_ms() - t0;
     return T.nout;
 }

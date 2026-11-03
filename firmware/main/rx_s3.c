@@ -13,6 +13,7 @@
 #include <math.h>
 #include <string.h>
 #include "esp_cpu.h"
+#include "esp_heap_caps.h"
 #include "esp_private/regi2c_ctrl.h"
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
@@ -693,7 +694,8 @@ void pdx_rx_switchtest(uint32_t usA, uint32_t usB, uint32_t out[8])
 float pdx_rx_bench(unsigned decim, unsigned order, uint32_t reps)
 {
     static dec_t d;
-    static uint16_t sink[4096];
+    uint16_t *sink = heap_caps_malloc(4096 * 2, MALLOC_CAP_SPIRAM);
+    if (!sink) return 0;
     memset(&d, 0, sizeof(d));
     d.r2 = decim / 4u; d.order = order; d.shift = 6; d.n_out = 2048; d.out = sink;
     volatile uint32_t *bp = bank_ptr(BANK_A);
@@ -704,5 +706,6 @@ float pdx_rx_bench(unsigned decim, unsigned order, uint32_t reps)
     for (uint32_t r = 0; r < reps; r++) { d.k = 0; if (d.fast) dec_feed16(&d, bp, 12288u); else dec_feed(&d, bp, 12288u); }
     const uint32_t c = esp_cpu_get_cycle_count() - c0;
     taskEXIT_CRITICAL(&rx_mux);
+    heap_caps_free(sink);
     return (float)c / (12288.0f * reps);
 }

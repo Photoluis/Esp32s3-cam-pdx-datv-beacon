@@ -57,3 +57,25 @@ Cattura di 2 s dalla scheda, decodificata sul PC con `tools/parrot/s2_rx.py` (SR
 4. Rilevatore: con il solo rumore reale (spettro non piatto) segnala un segnale inesistente; serve una soglia sul
    PLHEADER, non solo sullo spettro.
 5. Tutto questo va poi portato sull'S3 (P2): demodulatore e LDPC in C, senza PC.
+
+## P2 — ricevitore in C sull'ESP32-S3 (03/11/2026)
+
+`firmware/main/s2rx.c` (comandi `RXLOAD` per caricare una cattura dal PC e `RXDEC` per decodificarla, o decodificare
+quella appena fatta con `RXSTREAM`). Sulla cattura vera di 2 s, decodificata **sulla scheda**:
+
+| Voce | Python (PC) | ESP32-S3 |
+|---|---|---|
+| QRZ | IZ7PDX | **IZ7PDX** |
+| MER | 16,9 dB | 16,5 dB |
+| Frame LDPC buoni | 16/20 | 16/20 |
+| BBHEADER buoni | 19 | 18 |
+| Pacchetti TS (CRC errati) | 609 (0) | 576 (3) |
+| Tempo | — | **20,8 s** (front-end 8,5 s, aggancio 0,9 s, 20 frame 11,4 s) |
+
+Ottimizzazioni (da 42 s per 1 s di segnale a 12 s): FIR in virgola fissa a 25 coefficienti con mescolatore a tabella,
+stima di temporizzazione su un blocco ogni due, metrica dei PLHEADER con una sola radice, niente prove dell'SR se la
+larghezza è entro il 10% di un valore standard, sindrome LDPC su bitset, LDPC fermato dopo 3 iterazioni senza
+miglioramenti (massimo 10), fase con fasori incrementali, niente `double` nei cicli (sull'S3 sono emulati).
+
+Lezioni: (1) la RAM statica del firmware non deve superare 0x3FCC0000 (area riservata alla radio): le tabelle grandi
+vanno in PSRAM; (2) la memoria del ricevitore va liberata a ogni decodifica; (3) buffer di cattura 3920 KB (2,0 s).
