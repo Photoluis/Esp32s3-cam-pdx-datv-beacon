@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "rx_lo_plan.h"
+#include "led_status.h"
 
 #define REG(a) (*(volatile uint32_t *)(a))
 
@@ -178,8 +179,12 @@ static const char *configure_rx(unsigned gain)
     return NULL;
 }
 
+bool pdx_rx_led_used;
+
 const char *pdx_rx_start(uint32_t lo_hz, unsigned gain)
 {
+    pdx_led_rx();                                  /* semaforo: verde = radio in ricezione */
+    pdx_rx_led_used = true;
     struct esp32s3_lo_plan plan;
     const char *e = tune_pll(lo_hz, &plan);
     if (e) return e;

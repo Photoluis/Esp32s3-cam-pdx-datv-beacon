@@ -212,8 +212,12 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
     memcpy(srt, ps, NFFT * sizeof(float));
     qsort(srt, NFFT, sizeof(float), cmp_float);
     const float floor = srt[NFFT / 10];
-    int pk = 0;
-    for (int k = 1; k < NFFT; k++) if (ps[k] > ps[pk]) pk = k;
+    /* cattura della scheda (Parrot sulla propria frequenza): il centro del segnale entro +-200 kHz. Ai bordi ci sono
+     * disturbi stretti che la compensazione del decimatore alza fino a +11 dB sopra il segnale vero (RF del 04/11) */
+    const int kr = droop_comp ? (int)(200e3f / (fs / NFFT)) : NFFT / 2;
+    const int k0 = NFFT / 2 - kr > 0 ? NFFT / 2 - kr : 0, k1 = NFFT / 2 + kr < NFFT ? NFFT / 2 + kr : NFFT - 1;
+    int pk = k0;
+    for (int k = k0 + 1; k <= k1; k++) if (ps[k] > ps[pk]) pk = k;
     *peak_db = floor > 0 ? 10.0f * log10f(ps[pk] / floor) : 0;
     bool ok = *peak_db >= 3.0f;
     if (ok) {

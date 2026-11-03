@@ -311,7 +311,16 @@ static void media_upload(int argc, char **argv)
     printf("OK caricato: %s\n", d);
 }
 
+static void handle_cmd(char *line);
+/* semaforo: un comando che ha acceso la ricezione (LED verde) torna in attesa (giallo) quando finisce */
 static void handle(char *line)
+{
+    pdx_rx_led_used = false;
+    handle_cmd(line);
+    if (pdx_rx_led_used) { pdx_rx_led_used = false; pdx_led_idle(); }
+}
+
+static void handle_cmd(char *line)
 {
     char raw[128];
     snprintf(raw, sizeof(raw), "%s", line);
@@ -662,7 +671,10 @@ static void handle(char *line)
             pdx_rx_stream_stats_t st;
             while (!got && esp_timer_get_time() < t_end && !stop_requested()) {
                 /* occhiata di 60 ms: solo lo spettro */
-                if (pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+                /* radio risintonizzata a ogni occhiata: nelle pause la catena RX perde la configurazione (RF del 04/11:
+                 * solo la prima occhiata dopo l'avvio vedeva il segnale) */
+                if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) ||
+                    pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
                 looks++;
                 float fc, w, pk;
                 if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
@@ -674,9 +686,10 @@ static void handle(char *line)
                 fflush(stdout);
                 vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
                 const uint32_t n = 2000000u;
-                if (pdx_rx_stream((int8_t *)rx_buf, n, 16, 3, 8, &st)) continue;
+                if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) || pdx_rx_stream((int8_t *)rx_buf, n, 16, 3, 8, &st)) continue;
                 rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
                 s2rx_set_board_capture(true);
+                pdx_led_idle();                              /* decodifica: radio non in ascolto */
                 printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
                        (unsigned)st.samples_out, (unsigned)st.overruns);
                 fflush(stdout);
@@ -802,16 +815,21 @@ static void handle(char *line)
                rep.bb_ok, (unsigned)np, (unsigned)rep.ts_crc_bad, rep.call[0] ? rep.call : "-", (unsigned)rep.ms_total,
                (unsigned)rep.ms_front, (unsigned)rep.ms_sync, (unsigned)rep.ms_frames,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));
-    } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* scala dei colori del LED senza TX: da -30 a 0 dB */
-        for (int db = -30; db <= 0; db += 2) {
-            printf("LED %d dB\n", db);
-            fflush(stdout);
-            pdx_led_tx(db);
-            vTaskDelay(pdMS_TO_TICKS(450));
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    } else if (!strcasecmp(argv[0], "LEDTEST")) {            /* semaforo del LED senza RF: verde, giallo, rosso a 3 livelli */
+        printf("LED verde fisso (RX) per 3 s\n"); fflush(stdout);
+        pdx_led_rx();
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        printf("LED giallo fisso (attesa) per 3 s\n"); fflush(stdout);
         pdx_led_idle();
-        printf("OK LED di nuovo in configurazione (blu)\n");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        static const int lv[3] = {-40, -20, -5};
+        for (int i = 0; i < 3; i++) {
+            printf("LED rosso lampeggiante (TX a %d dB) per 4 s\n", lv[i]); fflush(stdout);
+            pdx_led_tx(lv[i]);
+            vTaskDelay(pdMS_TO_TICKS(4000));
+        }
+        pdx_led_idle();
+        printf("OK LED di nuovo in attesa (giallo)\n");
 
     } else if (!strcasecmp(argv[0], "S2TEST")) {             /* codificatore DVB-S2 del firmware contro quello del PC */
         pdx_s2_selftest();

@@ -11,6 +11,8 @@
 /* sintonizza il PLL in ricezione (lo_hz) e configura la catena RX con il guadagno dato; NULL se riuscito, altrimenti il
  * motivo. Dopo la ricezione la radio va riportata allo stato del modulatore con un riavvio. */
 const char *pdx_rx_start(uint32_t lo_hz, unsigned gain);
+/* true dopo un pdx_rx_start (LED verde): chi comanda la ricezione rimette il LED in attesa alla fine */
+extern bool pdx_rx_led_used;
 /* frequenza effettiva del LO (passi di ~458 Hz) */
 uint32_t pdx_rx_lo_hz(void);
 /* una cattura di n coppie (<= PDX_RX_PAIRS) nel banco 0x3FCD0000: parole a 32 bit, I = bit 0..9, Q = bit 10..19 con
