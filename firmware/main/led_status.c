@@ -115,7 +115,7 @@ void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b)
     show_fixed();
 }
 
-void pdx_led_idle(void) { pdx_led_rgb(128, 100, 0); }                /* attesa: giallo fisso */
+void pdx_led_idle(void) { pdx_led_rgb(77, 60, 0); }                  /* attesa: giallo fisso al 30% (utente, 04/11) */
 void pdx_led_rx(void) { pdx_led_rgb(0, 128, 0); }                     /* ricezione: verde fisso al 50% */
 
 void pdx_led_tx(double level_db)

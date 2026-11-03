@@ -2,7 +2,7 @@
  * LED RGB della scheda (WS2812 su GPIO48, schema Freenove / diymore ESP32-S3-CAM): semaforo dello stato, per tutte le
  * funzioni del beacon (richiesta dell'utente del 04/11, al posto del colore "di calore"):
  *   RX        verde fisso al 50%
- *   attesa    giallo fisso (configurazione, pause del ciclo, decodifica)
+ *   attesa    giallo fisso al 30% (configurazione, pause del ciclo, decodifica)
  *   TX        rosso al 50% lampeggiante, da 1 Hz a PDX_LED_DB_MIN fino a 5 Hz a PDX_LED_DB_MAX
  * Modi: normale, minimo (stessi colori alla luminosità più bassa visibile), spento.
  * Il lampeggio è un ciclo hardware dell'RMT: continua da solo mentre il core 0 ha gli interrupt disattivati. */
