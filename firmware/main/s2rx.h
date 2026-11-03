@@ -37,3 +37,7 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
 /* controllo rapido (solo spettro) per l'ascolto: true se c'è un segnale largo almeno 50 kHz e almeno min_db sul rumore */
 bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, float min_db, float *center,
                  float *width, float *peak_db);
+
+/* true se la cattura viene dal decimatore della scheda (RXSTREAM, PARROT): il rilevatore ne compensa la risposta;
+ * false per catture caricate dal PC (RXLOAD) */
+void s2rx_set_board_capture(bool on);

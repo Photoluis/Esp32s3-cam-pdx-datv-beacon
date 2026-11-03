@@ -30,6 +30,8 @@
 typedef struct { float re, im; } cf;
 
 static const s2rx_env_t *E;
+static bool droop_comp;                /* cattura dal decimatore della scheda: compensare la sua risposta */
+void s2rx_set_board_capture(bool on) { droop_comp = on; }
 static void lg(const char *fmt, ...)
 {
     if (!E || !E->log) return;
@@ -177,7 +179,7 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
         fft(x, NFFT);
         for (int k = 0; k < NFFT; k++) p[(k + NFFT / 2) % NFFT] += cabs2(x[k]);   /* fftshift */
     }
-    if (fs > 0.99e6f && fs < 1.01e6f) {
+    if (droop_comp && fs > 0.99e6f && fs < 1.01e6f) {
         /* il decimatore della scheda (somma di 4 + CIC3 /4 a 16 Msps) cala verso i bordi: il rumore ha una forma a
          * cupola che sembrava un segnale (04/11). Si divide per |H(f)|^2, normalizzata in continua */
         for (int k = 0; k < NFFT; k++) {
@@ -1029,7 +1031,8 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     rep->sr = (uint32_t)lroundf(sr / (1 + slope));
     rep->ms_front = now_ms() - t0;
     /* primo PLHEADER: massimo della metrica su due frame lunghi */
-    uint32_t lim = 2 * 33282 + 90 < S.nsym - 90 ? 2 * 33282 + 90 : S.nsym - 90;
+    /* fino a 6 frame lunghi (~0,6 s a 333 kS): la cattura può iniziare prima del segnale */
+    uint32_t lim = 6 * 33282 + 90 < S.nsym - 90 ? 6 * 33282 + 90 : S.nsym - 90;
     float best = 0;
     uint32_t m0 = 0;
     for (uint32_t k = 1; k < lim; k++) { const float x = hdr_metric(&S, k, NULL); if (x > best) { best = x; m0 = k; } }

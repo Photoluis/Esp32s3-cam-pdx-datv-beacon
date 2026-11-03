@@ -90,6 +90,7 @@ RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
 #define RX_BUF_BYTES (3920u * 1024u)                  /* 2,1 s a 1 Msps: il resto della PSRAM serve al ricevitore */
 static uint8_t *rx_buf;
 static uint32_t rx_len, rx_fs, rx_lo;
+static bool rx_board = true;                    /* la cattura in memoria viene dal decimatore della scheda */
 /* Parrot: ultimo QSO ricevuto, conservato in RTC per la risposta dopo il riavvio (radio pulita per la TX) */
 #define PARROT_MAGIC 0x50415254u
 typedef struct {
@@ -551,6 +552,7 @@ static void handle(char *line)
         }
         rx_len = 2u * st.samples_out;
         rx_fs = fs;
+        rx_board = true;
         rx_lo = pdx_rx_lo_hz();
         printf("RXSTREAM fine: %u coppie lette, %u campioni, %.2f cicli/coppia, motore oltre il lettore %u volte, "
                "rms %.1f, saturati %u, ritardo max %u coppie\n", (unsigned)st.pairs_in, (unsigned)st.samples_out,
@@ -643,6 +645,7 @@ static void handle(char *line)
         bool got = false;
         if (only_dec) {
             if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
+            s2rx_set_board_capture(rx_board);
             s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, pts, RXDEC_TS_MAX, pok);
             got = rep.call[0] != 0;
         } else {
@@ -672,7 +675,8 @@ static void handle(char *line)
                 vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
                 const uint32_t n = 2000000u;
                 if (pdx_rx_stream((int8_t *)rx_buf, n, 16, 3, 8, &st)) continue;
-                rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz();
+                rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
+                s2rx_set_board_capture(true);
                 printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
                        (unsigned)st.samples_out, (unsigned)st.overruns);
                 fflush(stdout);
@@ -774,7 +778,7 @@ static void handle(char *line)
         vTaskDelay(pdMS_TO_TICKS(300));
         uart_set_baudrate(UART_NUM_0, 115200);
         vTaskDelay(pdMS_TO_TICKS(100));
-        if (got == nblk) { rx_len = len; rx_fs = (uint32_t)atoi(argv[2]); }
+        if (got == nblk) { rx_len = len; rx_fs = (uint32_t)atoi(argv[2]); rx_board = false; }
         printf("\nRXLOAD fine: %u/%u blocchi%s\n", (unsigned)got, (unsigned)nblk, got == nblk ? "" : " (incompleto)");
 
     } else if (!strcasecmp(argv[0], "RXDEC")) {              /* RXDEC [SR]: decodifica DVB-S2 della cattura in PSRAM */
@@ -789,6 +793,7 @@ static void handle(char *line)
         s2rx_report_t rep;
         printf("RXDEC %u campioni a %u S/s, PSRAM libera %u KB\n", (unsigned)(rx_len / 2u), (unsigned)rx_fs,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));
+        s2rx_set_board_capture(rx_board);
         const uint32_t np = s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, argc >= 2 ? (uint32_t)atoi(argv[1]) : 0u,
                                      &env, &rep, ts, RXDEC_TS_MAX, ok);
         printf("RXDEC risultato: rilevato %d SR %u freq %+.1f Hz MER %.1f dB D %.1f frame %d LDPC %d BB %d TS %u (errati %u) "
