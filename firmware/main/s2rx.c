@@ -177,10 +177,34 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
         fft(x, NFFT);
         for (int k = 0; k < NFFT; k++) p[(k + NFFT / 2) % NFFT] += cabs2(x[k]);   /* fftshift */
     }
+    if (fs > 0.99e6f && fs < 1.01e6f) {
+        /* il decimatore della scheda (somma di 4 + CIC3 /4 a 16 Msps) cala verso i bordi: il rumore ha una forma a
+         * cupola che sembrava un segnale (04/11). Si divide per |H(f)|^2, normalizzata in continua */
+        for (int k = 0; k < NFFT; k++) {
+            const float f = ((float)(k - NFFT / 2) * fs / NFFT) / 16e6f;          /* frequenza normalizzata a 16 Msps */
+            const float x4 = (float)M_PI * f * 4, x16 = (float)M_PI * f * 16;
+            const float h1 = fabsf(f) < 1e-9f ? 4.0f : sinf(x4) / sinf((float)M_PI * f);       /* somma di 4 */
+            const float h3 = fabsf(f) < 1e-9f ? 4.0f : sinf(x16) / sinf(x4);                  /* CIC /4 a 4 Msps */
+            float g = (h1 / 4) * (h3 / 4) * (h3 / 4) * (h3 / 4);
+            g = g * g;
+            if (g < 1e-3f) g = 1e-3f;
+            p[k] /= g;
+        }
+    }
+    {   /* la continua della radio varia lentamente: picco stretto al centro, più alto della gobba di un segnale DATV.
+         * I bin entro +-12 kHz si sostituiscono con la media dei vicini appena fuori (provato in RF il 04/11) */
+        const int c = NFFT / 2, half = (int)(12e3f / (fs / NFFT)) + 1;
+        if (c - half - 3 >= 0 && c + half + 3 < NFFT) {
+            float a = 0;
+            for (int j = 1; j <= 3; j++) a += p[c - half - j] + p[c + half + j];
+            a /= 6;
+            for (int k = c - half; k <= c + half; k++) p[k] = a;
+        }
+    }
     for (int k = 0; k < NFFT; k++) {
         float a = 0;
         int c = 0;
-        for (int j = k - 4; j <= k + 4; j++) if (j >= 0 && j < NFFT) { a += p[j]; c++; }
+        for (int j = k - 15; j <= k + 15; j++) if (j >= 0 && j < NFFT) { a += p[j]; c++; }   /* 31 kHz: i picchi stretti si appiattiscono */
         ps[k] = a / (float)c;
     }
     memcpy(srt, ps, NFFT * sizeof(float));
