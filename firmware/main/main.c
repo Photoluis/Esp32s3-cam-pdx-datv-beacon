@@ -90,6 +90,27 @@ RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
 #define RX_BUF_BYTES (3920u * 1024u)                  /* 2,1 s a 1 Msps: il resto della PSRAM serve al ricevitore */
 static uint8_t *rx_buf;
 static uint32_t rx_len, rx_fs, rx_lo;
+/* Parrot: ultimo QSO ricevuto, conservato in RTC per la risposta dopo il riavvio (radio pulita per la TX) */
+#define PARROT_MAGIC 0x50415254u
+typedef struct {
+    uint32_t magic;
+    char call[16], fec[6];
+    float mer, d, foff_hz;
+    uint32_t sr;
+    uint32_t crc;
+} parrot_state_t;
+RTC_NOINIT_ATTR static parrot_state_t parrot;
+static uint32_t parrot_crc(void) { return esp_rom_crc32_le(0, (const uint8_t *)&parrot, offsetof(parrot_state_t, crc)); }
+static bool parrot_valid(void) { return parrot.magic == PARROT_MAGIC && parrot.crc == parrot_crc(); }
+static char parrot_l1[24], parrot_l2[48], parrot_prov[40];
+static void parrot_texts(void)
+{
+    snprintf(parrot_l1, sizeof(parrot_l1), "QSO %s", parrot.call);
+    snprintf(parrot_l2, sizeof(parrot_l2), "MER %.1f dB D%.1f %ukS %s %+.1f kHz", (double)parrot.mer, (double)parrot.d,
+             (unsigned)((parrot.sr + 500u) / 1000u), parrot.fec, (double)parrot.foff_hz / 1000.0);
+    snprintf(parrot_prov, sizeof(parrot_prov), "QRK %s %.1fdB D%.1f", parrot.call, (double)parrot.mer, (double)parrot.d);
+}
+
 /* ambiente del ricevitore DVB-S2 (s2rx.c) */
 #define RXDEC_TS_MAX 2000u
 static void *rxdec_alloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
@@ -595,6 +616,121 @@ static void handle(char *line)
         uart_set_baudrate(UART_NUM_0, 115200);
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
+
+    } else if (!strcasecmp(argv[0], "PARROT") || !strcasecmp(argv[0], "PARROTDEC")) {
+        /* PARROT <ascolto_s> <risposta_s> [stabilizzazione_s] [dry]: ascolta sulla frequenza del beacon, cattura 2 s,
+         * decodifica, poi riavvia e risponde con QRZ e QRK in sovrimpressione (dry: senza TX).
+         * PARROTDEC: solo la decodifica della cattura in memoria (prove senza RF). */
+        const bool only_dec = !strcasecmp(argv[0], "PARROTDEC");
+        const unsigned listen_s = !only_dec && argc >= 2 ? (unsigned)atoi(argv[1]) : 0;
+        const unsigned reply_s = !only_dec && argc >= 3 ? (unsigned)atoi(argv[2]) : 60;
+        const unsigned stab_s = !only_dec && argc >= 4 ? (unsigned)atoi(argv[3]) : 3;
+        bool dry = false;
+        for (int i = 1; i < argc; i++) if (!strcasecmp(argv[i], "dry")) dry = true;
+        if (!only_dec && (listen_s < 5 || listen_s > 3600 || reply_s < 10 || reply_s > TX_MAX_S)) {
+            printf("ERR PARROT <ascolto 5..3600 s> <risposta 10..%u s> [stabilizzazione s] [dry]\n", (unsigned)TX_MAX_S);
+            return;
+        }
+        if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
+        static uint8_t *pts, *pok;
+        if (!pts) pts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+        if (!pok) pok = heap_caps_malloc(RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+        if (!rx_buf || !pts || !pok) { printf("ERR memoria\n"); return; }
+        pdx_web_set_mode("Parrot: ascolto");
+        pdx_web_stop();
+        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+        s2rx_report_t rep;
+        bool got = false;
+        if (only_dec) {
+            if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
+            s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, pts, RXDEC_TS_MAX, pok);
+            got = rep.call[0] != 0;
+        } else {
+            pdx_web_mark_radio_dirty();
+            const uint32_t lo = cfg.freq_khz * 1000u;
+            const char *e = pdx_rx_start(lo, PDX_RX_GAIN_DEF);
+            if (e) { printf("ERR RX %s\n", e); return; }
+            printf("PARROT ascolto su %.3f MHz per %u s (un tasto o BOOT per fermare)\n", cfg.freq_khz / 1000.0, listen_s);
+            fflush(stdout);
+            uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
+            uart_flush_input(UART_NUM_0);
+            const int64_t t_end = esp_timer_get_time() + (int64_t)listen_s * 1000000;
+            uint32_t looks = 0;
+            pdx_rx_stream_stats_t st;
+            while (!got && esp_timer_get_time() < t_end && !stop_requested()) {
+                /* occhiata di 60 ms: solo lo spettro */
+                if (pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+                looks++;
+                float fc, w, pk;
+                if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
+                    vTaskDelay(pdMS_TO_TICKS(150));
+                    continue;
+                }
+                printf("PARROT segnale dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
+                       (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk, stab_s);
+                fflush(stdout);
+                vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
+                const uint32_t n = 2000000u;
+                if (pdx_rx_stream((int8_t *)rx_buf, n, 16, 3, 8, &st)) continue;
+                rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz();
+                printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
+                       (unsigned)st.samples_out, (unsigned)st.overruns);
+                fflush(stdout);
+                s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, pts, RXDEC_TS_MAX, pok);
+                got = rep.call[0] != 0;
+                if (!got) printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
+            }
+            if (!got) { printf("PARROT fine dell'ascolto: nessun QSO (%u occhiate)\n", (unsigned)looks); return; }
+        }
+        if (!got) { printf("PARROT nessun nominativo letto\n"); return; }
+        memset(&parrot, 0, sizeof(parrot));
+        parrot.magic = PARROT_MAGIC;
+        snprintf(parrot.call, sizeof(parrot.call), "%s", rep.call);
+        snprintf(parrot.fec, sizeof(parrot.fec), "%s", rep.fec);
+        parrot.mer = rep.mer_db; parrot.d = rep.d_margin_db; parrot.foff_hz = rep.freq_hz; parrot.sr = rep.sr;
+        parrot.crc = parrot_crc();
+        parrot_texts();
+        printf("PARROT QSO: %s | %s | SDT \"%s\"\n", parrot_l1, parrot_l2, parrot_prov);
+        if (only_dec || dry) { printf("PARROT %s: nessuna TX\n", only_dec ? "solo decodifica" : "prova a secco"); return; }
+        char c[32];
+        snprintf(c, sizeof(c), "PARROTREPLY %u", reply_s);
+        reboot_and_run(c);
+
+    } else if (!strcasecmp(argv[0], "PARROTREPLY") || !strcasecmp(argv[0], "PARROTDUMP")) {
+        /* PARROTREPLY <s>: risposta in TX (barre + sovrimpressione con QRZ e QRK); PARROTDUMP <pacchetti>: lo stesso TS
+         * in esadecimale, senza RF */
+        if (!parrot_valid()) { printf("ERR nessun QSO in memoria (PARROT o PARROTDEC)\n"); return; }
+        const bool dump = !strcasecmp(argv[0], "PARROTDUMP");
+        const uint32_t secs = argc >= 2 ? (uint32_t)atoi(argv[1]) : 60u;
+        parrot_texts();
+        pdx_live_cfg_t lc;
+        live_cfg_from(&lc, PDX_LV_IMG, cfg.freq_khz, cfg.amp, cfg.fec);
+        lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL);              /* barre standard con i dati in sovrimpressione */
+        lc.ovl_full = true;
+        lc.qrk1 = parrot_l1;
+        lc.qrk2 = parrot_l2;
+        lc.provider = parrot_prov;
+        /* si risponde con il symbol rate della stazione ricevuta (il suo ricevitore è già lì), al massimo 500 kS */
+        { static const uint32_t SRS[] = {125000, 250000, 333000, 500000}; uint32_t b = SRS[0];
+          for (unsigned i = 0; i < 4; i++) if ((parrot.sr > SRS[i] ? parrot.sr - SRS[i] : SRS[i] - parrot.sr) < (parrot.sr > b ? parrot.sr - b : b - parrot.sr)) b = SRS[i];
+          lc.sr = b; }
+        if (dump) {
+            printf("PARROTDUMP %u pacchetti\n", (unsigned)secs);
+            const char *e = pdx_live_dump(&lc, secs);
+            if (e) printf("ERR %s\n", e);
+            return;
+        }
+        char fa[16];
+        snprintf(fa, sizeof(fa), "%.3f", cfg.freq_khz / 1000.0);
+        uint32_t fkhz;
+        if (!tx_common(fa, lc.amp, secs, &fkhz)) return;
+        lc.freq_khz = pdx_cfg_final_khz(&cfg, fkhz, NULL);
+        printf("TX ON PARROT risposta a %s per %u s: %s | %s\n", parrot.call, (unsigned)secs, parrot_l1, parrot_l2);
+        tx_start_note();
+        const char *why;
+        const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);
+        if (why) printf("ERR %s\n", why);
+        tx_end_note(ms, true);
 
     } else if (!strcasecmp(argv[0], "RXLOAD")) {             /* RXLOAD <byte> <fs>: cattura dal PC in PSRAM (prove) */
         if (argc < 3) { printf("ERR RXLOAD <byte> <fs>\n"); return; }

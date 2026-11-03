@@ -33,3 +33,7 @@ typedef struct {
  * (1 buono, 0 errato, 2 non verificabile). Restituisce il numero di pacchetti TS ricostruiti. */
 uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, const s2rx_env_t *env,
                   s2rx_report_t *rep, uint8_t *ts_out, uint32_t ts_max, uint8_t *ts_ok);
+
+/* controllo rapido (solo spettro) per l'ascolto: true se c'è un segnale largo almeno 50 kHz e almeno min_db sul rumore */
+bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, float min_db, float *center,
+                 float *width, float *peak_db);

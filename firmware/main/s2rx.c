@@ -991,6 +991,7 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
         }
     }
     lg("segnale: centro %+.0f Hz, larghezza %.0f Hz -> SR %.0f, picco %.1f dB", fc, width, sr, pk);
+    if (sr < 50e3f || sr > fs / 2) { lg("SR %.0f fuori dai limiti: non è DVB-S2", sr); return 0; }
     /* front-end; seconda passata se l'SR va corretto */
     const uint32_t symmax = (uint32_t)((float)n / (fs / sr)) + 64;
     symbuf_t S = {E->alloc(2 * (size_t)symmax), 0, 0};
@@ -1010,6 +1011,14 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     for (uint32_t k = 1; k < lim; k++) { const float x = hdr_metric(&S, k, NULL); if (x > best) { best = x; m0 = k; } }
     int v0 = -1;
     if (best < 0.30f || !refine(&S, m0, 0, 0.30f, -1, &v0)) { lg("nessun PLHEADER"); E->release(S.sym); return 0; }
+    {
+        geom_t gv;
+        if (!geom(v0, &gv)) {                                        /* MODCOD non QPSK (o falso aggancio) */
+            lg("primo PLHEADER con MODCOD %d non gestito: segnale non riconosciuto", v0 >> 2);
+            E->release(S.sym);
+            return 0;
+        }
+    }
     static uint32_t hm[MAXHDR];
     static int hv[MAXHDR];
     int nh = 0;
@@ -1122,4 +1131,16 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     release_all();
     rep->ms_total = now_ms() - t0;
     return T.nout;
+}
+
+bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, float min_db, float *center,
+                 float *width, float *peak_db)
+{
+    E = env;
+    int64_t si = 0, sq = 0;
+    for (uint32_t i = 0; i < n; i++) { si += iq[2 * i]; sq += iq[2 * i + 1]; }
+    const float mi = (float)((double)si / n), mq = (float)((double)sq / n);
+    *peak_db = 0;
+    if (!detect(iq, n, fs, mi, mq, center, width, peak_db)) return false;
+    return *peak_db >= min_db && *width >= 90e3f && *width <= 700e3f;    /* larghezze del DATV (SR 66..500 kS) */
 }
