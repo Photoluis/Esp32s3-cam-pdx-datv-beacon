@@ -20,7 +20,7 @@ void pdx_led_init(void);
 void pdx_led_set_mode(int mode);                    /* riapplica subito l'ultimo stato */
 void pdx_led_idle(void);                            /* giallo fisso */
 void pdx_led_rx(void);                              /* verde fisso */
-void pdx_led_qso(void);                             /* verde veloce: nominativo acquisito dal Parrot */
+void pdx_led_qso(void);                             /* giallo 4 Hz: nominativo acquisito dal Parrot, fino alla risposta */
 void pdx_led_tx(double level_db);                   /* rosso lampeggiante */
 void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b);  /* colore fisso qualsiasi */
 /* avvisi brevi, solo in attesa (mai durante TX o RX), poi si torna allo stato di base:

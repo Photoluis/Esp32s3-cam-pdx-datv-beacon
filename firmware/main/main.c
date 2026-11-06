@@ -361,10 +361,18 @@ const char *pdx_parrot_json(void)
 /* ascolto sulla frequenza del beacon per listen_s secondi: occhiate di 60 ms allo spettro; con un segnale, attesa
  * stab_s, cattura di 2 s e decodifica. 1 = QSO letto (in "parrot"), 0 = nessun QSO, -1 = fermato o errore.
  * Dopo l'ascolto la radio non è più nello stato del modulatore: la TX seguente richiede un riavvio. */
+#define PARROT_DET_DB 10.0f   /* soglia del rilevatore (06/11: 8 dB dava falsi allarmi a 8,4 dB; segnali veri 20-27 dB) */
+static void parrot_on_call(const char *call)
+{
+    printf("PARROT nominativo %s acquisito: LED giallo lampeggiante fino alla risposta\n", call);
+    fflush(stdout);
+    pdx_led_qso();
+}
+
 static int parrot_listen(unsigned listen_s, unsigned stab_s)
 {
     if (!parrot_bufs()) { printf("ERR memoria\n"); return -1; }
-    s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+    s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call};
     s2rx_report_t rep;
     pdx_web_mark_radio_dirty();
     const uint32_t lo = cfg.freq_khz * 1000u;
@@ -396,7 +404,7 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
         /* riscaldamento (06/11): nel primo secondo dopo l'accensione della RX lo spettro ha gobbe finte (8-11 dB) */
         if (esp_timer_get_time() < t_warm) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
         float fc = 0, w = 0, pk = 0;
-        if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
+        if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, PARROT_DET_DB, &fc, &w, &pk)) {
             if (pk > best_pk) { best_pk = pk; best_fc = fc; best_w = w; }
             vTaskDelay(pdMS_TO_TICKS(150));
             continue;
@@ -429,8 +437,7 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
         s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
         if (rep.call[0]) {
             parrot_store(&rep);
-            pdx_led_qso();                                   /* verde veloce: nominativo acquisito (utente, 06/11) */
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            pdx_led_qso();                   /* giallo 4 Hz fino alla risposta (già acceso da on_call a metà decodifica) */
             return 1;
         }
         printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
@@ -465,7 +472,7 @@ static void parrot_pause_run(uint32_t s)
     pdx_web_stop();
     printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
     const int r = parrot_listen(s, cfg.parrot_stab);
-    if (r <= 0) pdx_led_idle();                              /* con un QSO il verde veloce resta fino al riavvio */
+    if (r <= 0) pdx_led_idle();                              /* con un QSO il giallo lampeggiante resta fino al riavvio */
     if (r < 0) {                                             /* fermato con BOOT o dalla seriale */
         while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
         discard_input();
@@ -828,16 +835,17 @@ static void handle_cmd(char *line)
         pdx_web_stop();
         if (only_dec) {
             if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
-            s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+            s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call};
             s2rx_report_t rep;
             s2rx_set_board_capture(rx_board);
             s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
+            pdx_led_idle();
             if (!rep.call[0]) { printf("PARROT nessun nominativo letto\n"); return; }
             parrot_store(&rep);
         } else if (parrot_listen(listen_s, stab_s) <= 0) {
             return;
         }
-        if (only_dec || dry) { printf("PARROT %s: nessuna TX\n", only_dec ? "solo decodifica" : "prova a secco"); return; }
+        if (only_dec || dry) { pdx_led_idle(); printf("PARROT %s: nessuna TX\n", only_dec ? "solo decodifica" : "prova a secco"); return; }
         char c[32];
         snprintf(c, sizeof(c), "PARROTREPLY %u", reply_s);
         reboot_and_run(c);
@@ -940,7 +948,7 @@ static void handle_cmd(char *line)
         if (!ts) ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
         if (!ts || !ok) { printf("ERR memoria\n"); return; }
         pdx_web_stop();
-        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, NULL};
         s2rx_report_t rep;
         printf("RXDEC %u campioni a %u S/s, PSRAM libera %u KB\n", (unsigned)(rx_len / 2u), (unsigned)rx_fs,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));

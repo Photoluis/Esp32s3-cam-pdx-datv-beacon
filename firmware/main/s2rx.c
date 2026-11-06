@@ -1169,7 +1169,19 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
         }
         rep->bb_ok += hok;
         ts_push(&T, W.df, hok ? dfl / 8 : 0, syncd, hok && dfl % 8 == 0);
+        if (E->on_call && !rep->call[0] && ts_out && hok) {          /* avviso appena il nominativo è leggibile */
+            s2rx_report_t tmp;
+            memset(&tmp, 0, sizeof(tmp));
+            parse_ts(ts_out, T.nout < ts_max ? T.nout : ts_max, &tmp);
+            find_call(&tmp);
+            if (tmp.call[0]) {
+                lg("nominativo %s letto al frame %d", tmp.call, i + 1);
+                E->on_call(tmp.call);
+                memcpy(rep->call, tmp.call, sizeof(rep->call));      /* non si riavvisa; ricalcolato alla fine */
+            }
+        }
     }
+    rep->call[0] = 0;
     rep->ms_frames = now_ms() - t0 - rep->ms_front - rep->ms_sync;
     if (nm) {                                                        /* mediana del MER */
         qsort(mers, (size_t)nm, sizeof(float), cmp_float);

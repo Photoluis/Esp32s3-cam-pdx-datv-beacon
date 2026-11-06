@@ -11,6 +11,7 @@ typedef struct {
     void (*release)(void *p);
     void (*log)(const char *s);      /* facoltativo */
     uint32_t (*ms)(void);            /* facoltativo: millisecondi, per i tempi */
+    void (*on_call)(const char *call);   /* facoltativo: nominativo letto dalla SDT durante la decodifica */
 } s2rx_env_t;
 
 typedef struct {
