@@ -12,58 +12,55 @@
 #include "esp_rom_crc.h"
 #include "overlay.h"
 
-#define PIP_MAGIC 0x50495031u
+/* Memoria RTC (06/11): la PSRAM "noinit" non conservava il riquadro attraverso il riavvio software (provato con la
+ * scrittura della cache), la RAM RTC sì (come il QSO). Formato compatto: costellazione = mappa di bit 84x84,
+ * immagine = grigi a 4 bit 64x36, ridisegnati e ingranditi al momento della risposta. */
+#define PIP_MAGIC 0x50495032u
+#define CST_S 84                     /* costellazione: lato in pixel (pari) */
+#define GW 64                        /* immagine: grigi 64x36, mostrata 128x72 */
+#define GH 36
+enum { PIP_CST = 1, PIP_IMG = 2 };
 typedef struct {
     uint32_t magic;
-    uint16_t w, h;                           /* immagine 160x90, costellazione quadrata 84x84 */
-    char label[28];
-    uint8_t yuyv[PDX_PIP_W * PDX_PIP_H * 2];
+    uint8_t kind;
+    char label[19];
+    uint8_t bits[(CST_S * CST_S + 7) / 8];
+    uint8_t grey[GW * GH / 2];
     uint32_t crc;
 } pip_t;
-EXT_RAM_NOINIT_ATTR static pip_t pip;
+RTC_NOINIT_ATTR static pip_t pip;
 
 static uint32_t pip_crc(void) { return esp_rom_crc32_le(0, (const uint8_t *)&pip, offsetof(pip_t, crc)); }
-bool pdx_pip_valid(void) { return pip.magic == PIP_MAGIC && pip.crc == pip_crc(); }
+bool pdx_pip_valid(void) { return pip.magic == PIP_MAGIC && pip.crc == pip_crc() && (pip.kind == PIP_CST || pip.kind == PIP_IMG); }
 const char *pdx_pip_label(void) { return pdx_pip_valid() ? pip.label : ""; }
 void pdx_pip_clear(void) { pip.magic = 0; }
 
 static void pip_seal(const char *label)
 {
-    snprintf(pip.label, sizeof(pip.label), "%s", label);
+    snprintf(pip.label, sizeof(pip.label), "%.18s", label);
     pip.magic = PIP_MAGIC;
     pip.crc = pip_crc();
 }
 
 /* ------------------------------------------------------------------ costellazione (quadrata, 06/11) */
-#define CST_S 84                     /* lato in pixel (pari) */
-static void put_y(int x, int y, uint8_t v)
-{
-    if (x < 0 || y < 0 || x >= CST_S || y >= CST_S) return;
-    pip.yuyv[(y * CST_S + x) * 2] = v;
-}
-
 void pdx_pip_from_const(const int16_t *iq, uint32_t n, const char *label)
 {
-    pip.w = pip.h = CST_S;
-    for (int i = 0; i < CST_S * CST_S; i++) { pip.yuyv[2 * i] = 20; pip.yuyv[2 * i + 1] = 128; }
+    memset(&pip, 0, sizeof(pip));
+    pip.kind = PIP_CST;
     const int c = CST_S / 2;
-    for (int k = 0; k < CST_S; k++) { put_y(k, c, 70); put_y(c, k, 70); }   /* assi */
     /* |s| medio = 1 -> punti ideali a +-0,707: 0,707 x 40 = 28 px dal centro (bordo a 42); i punti fuori si scartano */
     for (uint32_t i = 0; i < n; i++) {
         const int x = c + (int)(iq[2 * i] * 40 / 8192), y = c - (int)(iq[2 * i + 1] * 40 / 8192);
-        if (x >= 1 && y >= 1 && x < CST_S - 1 && y < CST_S - 1) put_y(x, y, 235);
-    }
-    /* crominanza verde sui punti: U e V bassi dove almeno un pixel della coppia è acceso */
-    for (int i = 0; i < CST_S * CST_S; i += 2) {
-        const bool on = pip.yuyv[2 * i] > 200 || pip.yuyv[2 * i + 2] > 200;
-        pip.yuyv[2 * i + 1] = on ? 60 : 128;
-        pip.yuyv[2 * i + 3] = on ? 60 : 128;
+        if (x >= 1 && y >= 1 && x < CST_S - 1 && y < CST_S - 1) {
+            const int k = y * CST_S + x;
+            pip.bits[k >> 3] |= (uint8_t)(1u << (k & 7));
+        }
     }
     pip_seal(label);
 }
 
-int pdx_pip_w(void) { return pdx_pip_valid() ? pip.w : 0; }
-int pdx_pip_h(void) { return pdx_pip_valid() ? pip.h : 0; }
+int pdx_pip_w(void) { return !pdx_pip_valid() ? 0 : pip.kind == PIP_CST ? CST_S : 2 * GW; }
+int pdx_pip_h(void) { return !pdx_pip_valid() ? 0 : pip.kind == PIP_CST ? CST_S : 2 * GH; }
 
 /* ------------------------------------------------------------------ immagine H.264 dal TS */
 static int find_video(const uint8_t *ts, const uint8_t *ok, uint32_t np, uint8_t *vtype)
@@ -130,30 +127,26 @@ static bool scan_nals(const uint8_t *b, uint32_t n, ps_t *ps)
     return idr;
 }
 
-/* riduzione I420 w x h -> riquadro YUYV 128x72 (media dei pixel, proporzioni mantenute con bande nere) */
-#define IMG_W 128                    /* immagine ricevuta nella risposta 16:9 (06/11) */
-#define IMG_H 72
+/* riduzione della luminanza I420 w x h -> grigi 4 bit 64x36 (media dei pixel, proporzioni mantenute con bande nere) */
 static void scale_into_pip(const uint8_t *yuv, uint32_t w, uint32_t h)
 {
-    pip.w = IMG_W; pip.h = IMG_H;
-    for (int i = 0; i < IMG_W * IMG_H; i++) { pip.yuyv[2 * i] = 16; pip.yuyv[2 * i + 1] = 128; }
-    float sc = (float)IMG_W / w;
-    if ((float)IMG_H / h < sc) sc = (float)IMG_H / h;
-    const int ow = (int)(w * sc) & ~1, oh = (int)(h * sc);
-    const int ox = ((IMG_W - ow) / 2) & ~1, oy = (IMG_H - oh) / 2;
-    const uint8_t *Y = yuv, *U = yuv + w * h, *V = U + (w / 2) * (h / 2);
+    memset(&pip, 0, sizeof(pip));
+    pip.kind = PIP_IMG;
+    float sc = (float)GW / w;
+    if ((float)GH / h < sc) sc = (float)GH / h;
+    const int ow = (int)(w * sc), oh = (int)(h * sc);
+    const int ox = (GW - ow) / 2, oy = (GH - oh) / 2;
     for (int y = 0; y < oh; y++) {
         const uint32_t y0 = (uint32_t)(y / sc), y1 = (uint32_t)((y + 1) / sc) > y0 ? (uint32_t)((y + 1) / sc) : y0 + 1;
         for (int x = 0; x < ow; x++) {
             const uint32_t x0 = (uint32_t)(x / sc), x1 = (uint32_t)((x + 1) / sc) > x0 ? (uint32_t)((x + 1) / sc) : x0 + 1;
             uint32_t a = 0, c = 0;
             for (uint32_t yy = y0; yy < y1 && yy < h; yy++)
-                for (uint32_t xx = x0; xx < x1 && xx < w; xx++) { a += Y[yy * w + xx]; c++; }
-            uint8_t *d = pip.yuyv + ((oy + y) * IMG_W + ox + x) * 2;
-            d[0] = (uint8_t)(c ? a / c : 16);
-            const uint32_t cxs = ((x0 + x1) / 2) / 2, cys = ((y0 + y1) / 2) / 2;
-            const uint32_t ci = (cys < h / 2 ? cys : h / 2 - 1) * (w / 2) + (cxs < w / 2 ? cxs : w / 2 - 1);
-            d[1] = (x & 1) ? V[ci] : U[ci];
+                for (uint32_t xx = x0; xx < x1 && xx < w; xx++) { a += yuv[yy * w + xx]; c++; }
+            const int v = c ? (int)(a / c) : 16;
+            const int q = v <= 16 ? 0 : v >= 235 ? 15 : (v - 16) * 15 / 219;
+            const int k = (oy + y) * GW + ox + x;
+            pip.grey[k >> 1] |= (uint8_t)(q << ((k & 1) * 4));
         }
     }
 }
@@ -262,11 +255,29 @@ bool pdx_pip_from_ts(const uint8_t *ts, const uint8_t *ok, uint32_t np, char *in
 
 void pdx_pip_paste(uint8_t *yuyv, int w, int h, int x, int y)
 {
-    if (!pdx_pip_valid() || pip.w > PDX_PIP_W || pip.h > PDX_PIP_H) return;
+    if (!pdx_pip_valid()) return;
     x &= ~1;
-    pdx_ovl_box(yuyv, w, h, x - 2, y - 2, pip.w + 4, pip.h + 4, 235, 128, 128);   /* bordo bianco */
-    for (int r = 0; r < pip.h; r++) {
-        if (y + r < 0 || y + r >= h || x < 0 || x + pip.w > w) continue;
-        memcpy(yuyv + ((size_t)(y + r) * w + x) * 2, pip.yuyv + (size_t)r * pip.w * 2, (size_t)pip.w * 2);
+    const int pw = pdx_pip_w(), ph = pdx_pip_h();
+    if (x < 2 || y < 2 || x + pw + 2 > w || y + ph + 2 > h) return;
+    pdx_ovl_box(yuyv, w, h, x - 2, y - 2, pw + 4, ph + 4, 235, 128, 128);   /* bordo bianco */
+    for (int r = 0; r < ph; r++) {
+        uint8_t *d = yuyv + ((size_t)(y + r) * w + x) * 2;
+        for (int c = 0; c < pw; c += 2, d += 4) {
+            if (pip.kind == PIP_CST) {
+                /* fondo scuro, assi grigi, punti bianchi con crominanza verde */
+                const int ctr = CST_S / 2;
+                uint8_t y0 = (r == ctr || c == ctr) ? 70 : 20, y1 = (r == ctr || c + 1 == ctr) ? 70 : 20;
+                const int k = r * CST_S + c;
+                const bool p0 = pip.bits[k >> 3] & (1u << (k & 7)), p1 = pip.bits[(k + 1) >> 3] & (1u << ((k + 1) & 7));
+                if (p0) y0 = 235;
+                if (p1) y1 = 235;
+                const uint8_t ch = (p0 || p1) ? 60 : 128;
+                d[0] = y0; d[1] = ch; d[2] = y1; d[3] = ch;
+            } else {
+                const int k = (r / 2) * GW + c / 2;                   /* ingrandita x2 */
+                const int v = 16 + ((pip.grey[k >> 1] >> ((k & 1) * 4)) & 15) * 219 / 15;
+                d[0] = d[2] = (uint8_t)v; d[1] = d[3] = 128;
+            }
+        }
     }
 }

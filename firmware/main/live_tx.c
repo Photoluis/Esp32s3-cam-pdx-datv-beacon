@@ -67,7 +67,7 @@ static void live_overlay(uint8_t *yuyv, int w, int h, void *ctx)
     }
     if (reply) {
         /* fascia rossa 58..141: QSO <QRZ> (x2) e tre righe di QRK; il riquadro del ricevuto sta a destra (pip_x) */
-        pdx_ovl_box(yuyv, w, h, 0, 58, L->cfg->pip_x > 40 ? L->cfg->pip_x - 6 : w, 84, 60, 100, 200);
+        pdx_ovl_box50(yuyv, w, h, 0, 58, L->cfg->pip_x > 40 ? L->cfg->pip_x - 6 : w, 84, 60, 100, 200);   /* rosso al 50% */
         pdx_ovl_text(yuyv, w, h, 8, 59, L->cfg->qrk1, 2);
         if (L->cfg->qrk2) pdx_ovl_text(yuyv, w, h, 8, 92, L->cfg->qrk2, 1);
         if (L->cfg->qrk3) pdx_ovl_text(yuyv, w, h, 8, 108, L->cfg->qrk3, 1);

@@ -68,6 +68,7 @@
 #include "parrot_pip.h"
 #include "overlay.h"
 #include "esp_rom_crc.h"
+#include "esp32s3/rom/cache.h"
 #include <ctype.h>
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
@@ -144,6 +145,9 @@ static void reboot_and_run(const char *cmd)
     printf("RIAVVIO per TX con la radio pulita (access point o ricezione usati): poi \"%s\"\n", cmd);
     fflush(stdout);
     uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+    /* la PSRAM non inizializzata (riquadro del QSO) va scritta dalla cache prima del riavvio: senza, alla risposta il
+     * riquadro risultava non valido (RF del 06/11) */
+    Cache_WriteBack_All();
     esp_restart();
 }
 
@@ -845,7 +849,9 @@ static void handle_cmd(char *line)
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
 
-    } else if (!strcasecmp(argv[0], "CONFIGMODE")) {        /* dopo il riavvio di fine TX: solo configurazione */
+    } else if (!strcasecmp(argv[0], "REBOOTCFG")) {         /* prova: riavvio software senza TX (RTC e riquadro restano) */
+        reboot_and_run("CONFIGMODE");
+    } else if (!strcasecmp(argv[0], "CONFIGMODE")) {       /* dopo il riavvio di fine TX: solo configurazione */
         printf("OK modo configurazione (radio pulita, access point)\n");
 
     } else if (!strcasecmp(argv[0], "PARROTPAUSE")) {       /* pausa del ciclo con il Parrot (dopo il riavvio) */
@@ -902,6 +908,7 @@ static void handle_cmd(char *line)
         pdx_live_cfg_t lc;
         live_cfg_from(&lc, PDX_LV_IMG, cfg.freq_khz, cfg.amp, cfg.fec);
         lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL);              /* barre standard con i dati in sovrimpressione */
+        if (!pdx_pip_valid()) printf("PARROT riquadro assente o non valido dopo il riavvio\n");
         if (lc.bg && pdx_pip_valid()) {
             /* riquadro del ricevuto (immagine H.264 o costellazione) in basso a destra, sotto la fascia del QRK */
             static uint8_t *bgp;
