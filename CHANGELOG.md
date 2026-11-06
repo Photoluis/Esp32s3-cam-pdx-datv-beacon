@@ -21,6 +21,10 @@
 - Titolo della pagina "ESP32-S3_CAM_PDX_DATV_BEACON" con il nominativo del beacon sotto; il telefono collegato
   all'access point annulla la partenza automatica.
 - Configurazione v6: le impostazioni della v1.1.0 vengono convertite da sole (Parrot spento).
+- **Aggiornamento corretto:** il file di aggiornamento ora contiene solo il firmware e si scrive a `0x10000`
+  (`..._app_0x10000.bin`); l'installatore dal browser scrive le parti separate. Correzione: nelle v1.0.0 / v1.1.0
+  `..._app_only.bin` scritto a `0x0` (e l'installatore dal browser) cancellava le impostazioni, al contrario di quanto
+  scritto nelle note. Note di rilascio: `docs/RELEASE_v1.2.0.md`.
 
 ## v1.1.0 — 01/11/2026
 

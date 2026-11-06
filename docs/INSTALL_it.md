@@ -36,7 +36,11 @@ Immagini della release:
 | File | Indirizzo | Contenuto |
 |---|---|---|
 | `…_full.bin` | `0x0` | bootloader, partizioni, firmware, monoscopio standard, sfondo PiP standard. **Cancella impostazioni e monoscopi personalizzati.** |
-| `…_app_only.bin` | `0x0` | bootloader, partizioni, solo firmware. **Conserva** impostazioni e monoscopi personalizzati. |
+| `…_app_0x10000.bin` (dalla v1.2.0) | **`0x10000`** | solo firmware. **Conserva** impostazioni e monoscopi personalizzati. |
+
+> **Nota sulle v1.0.0 / v1.1.0:** il loro `…_app_only.bin`, scritto a `0x0`, copre anche l'area delle impostazioni
+> (`0x9000`) e quindi **cancella le impostazioni** (i monoscopi personalizzati restano). Dalla v1.2.0 il file di
+> aggiornamento contiene solo il firmware e si scrive a `0x10000`.
 
 ## 1. Installazione dal browser
 
@@ -50,7 +54,7 @@ computer non si installa nulla. Firefox e Safari non supportano Web Serial.
 
 ## 2. Pacchetto Windows
 
-1. Scaricate `ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_Windows.zip` dalla
+1. Scaricate `ESP32-S3-CAM_PDX_DATV_Beacon_v1.2.0_Windows.zip` dalla
    [pagina delle release](https://github.com/Photoluis/Esp32s3-cam-pdx-datv-beacon/releases) ed estraetelo.
 2. Doppio clic su:
    - `1_INSTALL_FULL_erase.bat` per la prima installazione;
@@ -65,9 +69,9 @@ SmartScreen può chiedere conferma (*Ulteriori informazioni → Esegui comunque*
 ```
 python -m pip install esptool
 # prima installazione (cancella impostazioni e monoscopi personalizzati)
-python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_full.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.2.0_full.bin
 # solo aggiornamento
-python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x0 ESP32-S3-CAM_PDX_DATV_Beacon_v1.1.0_app_only.bin
+python -m esptool --chip esp32s3 --port COM3 -b 460800 write-flash 0x10000 ESP32-S3-CAM_PDX_DATV_Beacon_v1.2.0_app_0x10000.bin
 ```
 Su Linux la porta è `/dev/ttyUSB0` (utente nel gruppo `dialout`); su macOS `/dev/cu.wchusbserial*`.
 
