@@ -1035,6 +1035,9 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
     }
     lg("segnale: centro %+.0f Hz, larghezza %.0f Hz -> SR %.0f, picco %.1f dB", fc, width, sr, pk);
     if (sr < 50e3f || sr > fs / 2) { lg("SR %.0f fuori dai limiti: non è DVB-S2", sr); return 0; }
+    /* al massimo 700k simboli (~21 frame normali QPSK, come 2 s a 333 kS): a 500 kS i 2 s davano 1M simboli = 2 MB e
+     * le tabelle LDPC non trovavano più posto in PSRAM ("frame 0 non demodulato", RF del 06/11) */
+    if ((float)n / (fs / sr) > 700000.0f) n = (uint32_t)(700000.0f * (fs / sr));
     /* front-end; seconda passata se l'SR va corretto */
     const uint32_t symmax = (uint32_t)((float)n / (fs / sr)) + 64;
     symbuf_t S = {E->alloc(2 * (size_t)symmax), 0, 0};

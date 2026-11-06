@@ -849,7 +849,10 @@ static void handle_cmd(char *line)
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
 
-    } else if (!strcasecmp(argv[0], "REBOOTCFG")) {         /* prova: riavvio software senza TX (RTC e riquadro restano) */
+    } else if (!strcasecmp(argv[0], "RXBOARD")) {           /* prova: la cattura caricata con RXLOAD viene dalla scheda */
+        rx_board = true;
+        printf("OK cattura trattata come della scheda (compensazione del decimatore)\n");
+    } else if (!strcasecmp(argv[0], "REBOOTCFG")) {        /* prova: riavvio software senza TX (RTC e riquadro restano) */
         reboot_and_run("CONFIGMODE");
     } else if (!strcasecmp(argv[0], "CONFIGMODE")) {       /* dopo il riavvio di fine TX: solo configurazione */
         printf("OK modo configurazione (radio pulita, access point)\n");
