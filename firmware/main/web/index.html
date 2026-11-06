@@ -101,6 +101,11 @@ small{color:var(--muted)}
 <small data-t="parrot_note"></small>
 </section>
 
+<section><h2 data-t="s_sched"></h2>
+<svg id="sched" viewBox="0 0 600 230" style="width:100%;height:auto;display:block"></svg>
+<div id="schedtxt" style="font-size:14px;margin-top:6px"></div>
+</section>
+
 <section><h2 data-t="s_wifi"></h2>
 <label><span data-t="appass"></span><input name="appass" id="appass" type="password" autocomplete="new-password"></label>
 <small data-t="wifi_note"></small>
@@ -154,7 +159,7 @@ ja:'<svg viewBox="0 0 3 2"><path fill="#fff" d="M0 0h3v2H0z"/><circle cx="1.5" c
 ar:'<svg viewBox="0 0 12 6"><path fill="#00732f" d="M0 0h12v2H0z"/><path fill="#fff" d="M0 2h12v2H0z"/><path d="M0 4h12v2H0z"/><path fill="#f00" d="M0 0h3v6H0z"/></svg>'};
 const NAMES={it:'Italiano',en:'English',de:'Deutsch',es:'Español',fr:'Français',pt:'Português',nl:'Nederlands',pl:'Polski',el:'Ελληνικά',ja:'日本語',ar:'العربية'};
 const T={
-it:{s_parrot:"Parrot (risposta automatica)",parrot:"Parrot acceso: nelle pause del ciclo ascolta sulla propria frequenza",preply:"Durata della risposta (s, 10–250)",pstab:"Attesa prima della cattura (s, 0–30)",qso:"Ultimo QSO:",noqso:"nessuno",parrot_note:"Nelle pause il beacon ascolta: se riceve un DVB-S2 (QPSK, fino a 500 kS) legge il nominativo e risponde con QRZ, MER e margine in sovrimpressione, poi il ciclo riprende. Serve una pausa di almeno 30 s. Durante le pause l'access point resta spento.",camh:"Camera ribaltata in orizzontale (specchio)",camv:"Camera ribaltata in verticale (capovolta)",sr1000:"1000 (solo monoscopio, filtro!)",nocall:"⚠ Imposta il tuo nominativo (QRZ) e salva prima di trasmettere.",temp:"Temperatura chip",telem:"Telemetria in sovrimpressione: temperatura del chip, accensione, ciclo (modi dal vivo)",led:"LED di stato",o_led_norm:"normale",o_led_min:"al minimo (batteria)",o_led_off:"spento",s_xvtr:"Transverter / mixer esterno",lo:"Oscillatore locale OL (MHz, 0 = nessun mixer)",xvtr:"Frequenza finale",o_sum:"OL + IF",o_diff:"OL − IF (o IF − OL)",final:"Frequenza finale in aria:",inv_note:"(spettro invertito dal mixer: compensato)",xv_note:"La scheda trasmette sempre sulla IF (frequenza impostata sopra, 2300–2450 MHz). Con un mixer esterno il segnale va sulla frequenza finale, che compare in sovrimpressione, nel nome del servizio e qui. Dopo il mixer serve un filtro sulla banda finale.",o_live:"barre con dati in tempo reale",title:'Beacon DATV',conn:'connessione…',online:'collegato',offline:'non raggiungibile',intx:'beacon in TX',s_status:'Stato',mode:'Modo',up:'Acceso da',
+it:{s_sched:"Schema del ciclo",sc_boot:"All'accensione: attesa {s} s con l'access point acceso, poi il ciclo parte da solo",sc_manual:"Partenza manuale (AVVIA BEACON), poi il ciclo si ripete",sc_empty:"Niente da trasmettere: monoscopio e camera a 0 s",sc_mono:"MONOSCOPIO",sc_cam:"CAMERA",sc_pause:"PAUSA",sc_listen:"ASCOLTO PARROT",sc_cycle:"un ciclo = {s} s, poi si ripete",sc_ratio:"TX {tx}% del tempo · {k} {p}%",sc_idle:"attesa",sc_heard:"segnale",sc_wait:"attesa",sc_cap:"cattura",sc_dec:"decodifica",sc_reply:"RISPOSTA",sc_qso:"Se nella pausa arriva un DVB-S2:",sc_after:"poi riavvio e il ciclo riprende",sc_how:"Per un QSO: trasmetti su <b>{f} MHz</b> (SR fino a 500 kS) mentre il LED è verde, per almeno <b>{n} s</b>; poi passa in ricezione: la risposta arriva circa <b>{r} s</b> dopo l'inizio della tua TX.",sc_short:"Pausa corta: per ascoltare con calma servono almeno {n} s.",s_parrot:"Parrot (risposta automatica)",parrot:"Parrot acceso: nelle pause del ciclo ascolta sulla propria frequenza",preply:"Durata della risposta (s, 10–250)",pstab:"Attesa prima della cattura (s, 0–30)",qso:"Ultimo QSO:",noqso:"nessuno",parrot_note:"Nelle pause il beacon ascolta: se riceve un DVB-S2 (QPSK, fino a 500 kS) legge il nominativo e risponde con QRZ, MER e margine in sovrimpressione, poi il ciclo riprende. Serve una pausa di almeno 30 s. Durante le pause l'access point resta spento.",camh:"Camera ribaltata in orizzontale (specchio)",camv:"Camera ribaltata in verticale (capovolta)",sr1000:"1000 (solo monoscopio, filtro!)",nocall:"⚠ Imposta il tuo nominativo (QRZ) e salva prima di trasmettere.",temp:"Temperatura chip",telem:"Telemetria in sovrimpressione: temperatura del chip, accensione, ciclo (modi dal vivo)",led:"LED di stato",o_led_norm:"normale",o_led_min:"al minimo (batteria)",o_led_off:"spento",s_xvtr:"Transverter / mixer esterno",lo:"Oscillatore locale OL (MHz, 0 = nessun mixer)",xvtr:"Frequenza finale",o_sum:"OL + IF",o_diff:"OL − IF (o IF − OL)",final:"Frequenza finale in aria:",inv_note:"(spettro invertito dal mixer: compensato)",xv_note:"La scheda trasmette sempre sulla IF (frequenza impostata sopra, 2300–2450 MHz). Con un mixer esterno il segnale va sulla frequenza finale, che compare in sovrimpressione, nel nome del servizio e qui. Dopo il mixer serve un filtro sulla banda finale.",o_live:"barre con dati in tempo reale",title:'Beacon DATV',conn:'connessione…',online:'collegato',offline:'non raggiungibile',intx:'beacon in TX',s_status:'Stato',mode:'Modo',up:'Acceso da',
 s_tx:'Trasmissione',freq:'Frequenza (MHz)',fec:'FEC (DVB-S2 QPSK)',level:"Livello (dB, massimo −5)",dc:'Correzione DC I / Q',
 lvl_note:"Livello in dB teorici rispetto al massimo del modulatore (−6 dB = metà ampiezza), da −40 a −5: oltre −5 dB il chip entra in compressione. La potenza reale in dBm dipende dalla scheda e va tarata con una misura.",
 band1:'Banda ammessa',band2:'MHz: usare solo le frequenze consentite dalla propria licenza.',
@@ -177,7 +182,7 @@ preview:'Anteprima pronta',uploading:'Caricamento in corso…',upload_fail:'Cari
 saved:'Configurazione salvata.',nvs_err:'Errore di scrittura in memoria.',defaults:'Valori predefiniti (non ancora salvati).',
 starting:'Beacon in partenza: il Wi-Fi si spegne. Per fermarlo premere BOOT.',loaded:'Caricato',erased:'File personalizzato cancellato.',erase_fail:'Cancellazione non riuscita.',
 mode_cfg:'configurazione',mode_tx:'beacon in TX',mode_test:'prova in TX',absent:'assente',error:'Errore'},
-en:{s_parrot:"Parrot (automatic reply)",parrot:"Parrot on: listens on its own frequency during the cycle pauses",preply:"Reply duration (s, 10–250)",pstab:"Wait before capture (s, 0–30)",qso:"Last QSO:",noqso:"none",parrot_note:"During the pauses the beacon listens: when it receives DVB-S2 (QPSK, up to 500 kS) it reads the callsign and replies with QRZ, MER and margin in the overlay, then the cycle resumes. Pause must be at least 30 s. The access point stays off during the pauses.",camh:"Camera flipped horizontally (mirror)",camv:"Camera flipped vertically (upside down)",sr1000:"1000 (test card only, filter!)",nocall:"⚠ Set your own callsign (QRZ) and save before transmitting.",temp:"Chip temperature",telem:"Telemetry overlay: chip temperature, uptime, cycle (live modes)",led:"Status LED",o_led_norm:"normal",o_led_min:"minimum (battery)",o_led_off:"off",s_xvtr:"Transverter / external mixer",lo:"Local oscillator LO (MHz, 0 = no mixer)",xvtr:"Final frequency",o_sum:"LO + IF",o_diff:"LO − IF (or IF − LO)",final:"Final on-air frequency:",inv_note:"(spectrum inverted by the mixer: compensated)",xv_note:"The board always transmits on the IF (frequency set above, 2300–2450 MHz). With an external mixer the signal goes to the final frequency, which is shown in the overlay, in the service name and here. A filter for the final band is needed after the mixer.",o_live:"bars with live data",title:'DATV Beacon',conn:'connecting…',online:'connected',offline:'unreachable',intx:'beacon on air',s_status:'Status',mode:'Mode',up:'Uptime',
+en:{s_sched:"Cycle diagram",sc_boot:"At power-on: {s} s wait with the access point on, then the cycle starts by itself",sc_manual:"Manual start (START BEACON), then the cycle repeats",sc_empty:"Nothing to transmit: test card and camera at 0 s",sc_mono:"TEST CARD",sc_cam:"CAMERA",sc_pause:"PAUSE",sc_listen:"PARROT LISTEN",sc_cycle:"one cycle = {s} s, then it repeats",sc_ratio:"TX {tx}% of the time · {k} {p}%",sc_idle:"idle",sc_heard:"signal",sc_wait:"wait",sc_cap:"capture",sc_dec:"decode",sc_reply:"REPLY",sc_qso:"If a DVB-S2 signal arrives during the pause:",sc_after:"then reboot and the cycle resumes",sc_how:"For a QSO: transmit on <b>{f} MHz</b> (SR up to 500 kS) while the LED is green, for at least <b>{n} s</b>; then switch to receive: the reply comes about <b>{r} s</b> after the start of your TX.",sc_short:"Short pause: at least {n} s are needed to listen comfortably.",s_parrot:"Parrot (automatic reply)",parrot:"Parrot on: listens on its own frequency during the cycle pauses",preply:"Reply duration (s, 10–250)",pstab:"Wait before capture (s, 0–30)",qso:"Last QSO:",noqso:"none",parrot_note:"During the pauses the beacon listens: when it receives DVB-S2 (QPSK, up to 500 kS) it reads the callsign and replies with QRZ, MER and margin in the overlay, then the cycle resumes. Pause must be at least 30 s. The access point stays off during the pauses.",camh:"Camera flipped horizontally (mirror)",camv:"Camera flipped vertically (upside down)",sr1000:"1000 (test card only, filter!)",nocall:"⚠ Set your own callsign (QRZ) and save before transmitting.",temp:"Chip temperature",telem:"Telemetry overlay: chip temperature, uptime, cycle (live modes)",led:"Status LED",o_led_norm:"normal",o_led_min:"minimum (battery)",o_led_off:"off",s_xvtr:"Transverter / external mixer",lo:"Local oscillator LO (MHz, 0 = no mixer)",xvtr:"Final frequency",o_sum:"LO + IF",o_diff:"LO − IF (or IF − LO)",final:"Final on-air frequency:",inv_note:"(spectrum inverted by the mixer: compensated)",xv_note:"The board always transmits on the IF (frequency set above, 2300–2450 MHz). With an external mixer the signal goes to the final frequency, which is shown in the overlay, in the service name and here. A filter for the final band is needed after the mixer.",o_live:"bars with live data",title:'DATV Beacon',conn:'connecting…',online:'connected',offline:'unreachable',intx:'beacon on air',s_status:'Status',mode:'Mode',up:'Uptime',
 s_tx:'Transmission',freq:'Frequency (MHz)',fec:'FEC (DVB-S2 QPSK)',level:"Level (dB, maximum −5)",dc:'DC correction I / Q',
 lvl_note:"Level in theoretical dB relative to the modulator maximum (−6 dB = half amplitude), from −40 to −5: above −5 dB the chip starts compressing. The real power in dBm depends on the board and must be calibrated by measurement.",
 band1:'Allowed band',band2:'MHz: use only the frequencies permitted by your licence.',
@@ -408,7 +413,7 @@ saved:'تم حفظ الإعداد.',nvs_err:'خطأ في الكتابة إلى �
 starting:'المنارة تبدأ: سيتوقف Wi-Fi. اضغط BOOT لإيقافها.',loaded:'تم الرفع',erased:'تم حذف الملف المخصص.',erase_fail:'تعذّر الحذف.',
 mode_cfg:'الإعداد',mode_tx:'المنارة تبث',mode_test:'إرسال تجريبي',absent:'غير موجود',error:'خطأ'}};
 let L='it';
-function t(k){return(T[L]&&T[L][k])||T.it[k]||k}
+function t(k){return(T[L]&&T[L][k])||(T.en&&T.en[k])||T.it[k]||k}
 let esMax=3,lastStatus='conn',lastMedia=null,lastMode='';
 // messaggi del firmware (in italiano) tradotti nella lingua scelta
 const SRV=[['configurazione salvata','saved'],['errore NVS','nvs_err'],['valori predefiniti','defaults'],['beacon in partenza','starting'],
@@ -431,7 +436,7 @@ function msg(m,c){const e=$('msg');e.textContent=m;e.className=c||''}
 let lastCfg=null;
 function showFinal(){if(!lastCfg)return;$('final').textContent=lastCfg.final.toFixed(3);$('inv').textContent=lastCfg.inv?t('inv_note'):''}
 function showLevel(){$('levelv').textContent=(+$('level').value).toFixed(1)+' dB'}
-function fill(c){lastCfg=c;showFinal();for(const k of['freq','sr','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait','lo','xvtr','led','preply','pstab'])$(k).value=c[k];showLevel();$('callin').value=c.call;$('loc').value=c.loc||'';$('call').textContent=c.call;$('nocall').style.display=c.call==='NOCALL'?'block':'none';$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl;$('telem').checked=!!c.telem;$('camh').checked=!!c.camh;$('camv').checked=!!c.camv;$('parrot').checked=!!c.parrot}
+function fill(c){lastCfg=c;showFinal();for(const k of['freq','sr','fec','level','dci','dcq','mono','monosrc','cam','cammode','pipbg','pause','wait','lo','xvtr','led','preply','pstab'])$(k).value=c[k];showLevel();$('callin').value=c.call;$('loc').value=c.loc||'';$('call').textContent=c.call;$('nocall').style.display=c.call==='NOCALL'?'block':'none';$('auto').checked=!!c.auto;$('ovl').checked=!!c.ovl;$('telem').checked=!!c.telem;$('camh').checked=!!c.camh;$('camv').checked=!!c.camv;$('parrot').checked=!!c.parrot;sched()}
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
   $('fw').textContent=s.fw;lastMode=s.mode;$('mode').textContent=MODES[s.mode]?t(MODES[s.mode]):s.mode;$('band').textContent=s.fmin+'–'+s.fmax;
@@ -447,7 +452,35 @@ async function post(u,b){const r=await fetch(u,{method:'POST',body:b});return r.
 async function apply(){const j=await post('/api/set',body());$('appass').value='';fill(j.cfg);
  if(j.ok)msg(t('applied'),'ok');else msg(t('errors')+': '+j.errors.map(e=>e.split(':')[0]).join(', '),'bad');return j.ok}
 $('f').onsubmit=e=>{e.preventDefault();apply()};
-$('level').oninput=showLevel;
+// ---- schema del ciclo: durate dai campi della pagina (anche prima di Applica)
+function num(id){const v=parseInt($(id).value,10);return isNaN(v)?0:v}
+function sched(){const svg=$('sched');if(!svg)return;
+ const M=num('mono'),C=num('cam'),P=num('pause'),W=num('wait'),R=num('preply'),S=num('pstab'),par=$('parrot').checked,au=$('auto').checked;
+ const RED='#e5484d',GRN='#3ccf7a',YEL='#e0b43a',TXT='#06121a',MUT='#8b9aa8';
+ const cyc=M+C+P,x0=10,wid=580;let h='';
+ const box=(x,y,w,hh,c,l1,l2)=>{h+=`<rect x="${x}" y="${y}" width="${Math.max(w,2)}" height="${hh}" rx="5" fill="${c}"/>`;
+  if(w>44){h+=`<text x="${x+w/2}" y="${y+hh/2-(l2?3:-5)}" text-anchor="middle" font-size="13" font-weight="700" fill="${TXT}">${l1}</text>`;
+   if(l2)h+=`<text x="${x+w/2}" y="${y+hh/2+13}" text-anchor="middle" font-size="11" fill="${TXT}">${l2}</text>`}};
+ const lab=(x,y,s,a)=>{h+=`<text x="${x}" y="${y}" font-size="12" fill="${MUT}" text-anchor="${a||'start'}">${s}</text>`};
+ lab(x0,16,au?t('sc_boot').replace('{s}',W):t('sc_manual'));
+ if(cyc<=0){h+=`<text x="300" y="80" text-anchor="middle" fill="${RED}" font-size="14">${t('sc_empty')}</text>`;svg.innerHTML=h;$('schedtxt').textContent='';return}
+ let x=x0;const sc=wid/cyc,y=30,hh=56;
+ if(M){box(x,y,M*sc,hh,RED,t('sc_mono'),M+' s TX');x+=M*sc}
+ if(C){box(x,y,C*sc,hh,RED,t('sc_cam'),C+' s TX');x+=C*sc}
+ if(P){box(x,y,P*sc,hh,par?GRN:YEL,par?t('sc_listen'):t('sc_pause'),P+' s '+(par?'RX':''));}
+ h+=`<path d="M${x0+wid-4} ${y+hh+6} v10 H${x0+4} v-10" fill="none" stroke="${MUT}" stroke-width="1.5"/><path d="M${x0+4} ${y+hh+4} l-4 8 h8z" fill="${MUT}"/>`;
+ lab(300,y+hh+30,t('sc_cycle').replace('{s}',cyc),'middle');
+ const tx=Math.round(100*(M+C)/cyc);let txt=t('sc_ratio').replace('{tx}',tx).replace('{p}',100-tx).replace('{k}',par?'RX':t('sc_idle'));
+ if(par&&P){const y2=140,parts=[[t('sc_heard'),1,GRN],[t('sc_wait')+' '+S+' s',S,GRN],[t('sc_cap'),2,GRN],[t('sc_dec'),21,YEL],[t('sc_reply'),R,RED]];
+  /* i primi tre passi sono brevi: larghezza fissa leggibile, il resto in proporzione */
+  const fx=[70,80,70],rest=wid-fx.reduce((a,b)=>a+b,0),s2=rest/(21+R);let x2=x0;lab(x0,y2-8,t('sc_qso'));
+  parts.forEach(([p,d,c],i)=>{const w=i<3?fx[i]:d*s2;box(x2,y2,w-2,40,c,p,d+' s');x2+=w})
+  lab(300,y2+58,t('sc_after'),'middle');
+  const f=lastCfg?lastCfg.final.toFixed(3):$('freq').value;
+  txt+='<br>'+t('sc_how').replace('{f}',f).replace('{sr}',$('sr').value).replace('{n}',S+4).replace('{r}',S+26);
+  if(P<S+25)txt+='<br><span class="warn">'+t('sc_short').replace('{n}',S+25)+'</span>'}
+ svg.setAttribute('viewBox',par&&P?'0 0 600 210':'0 0 600 120');svg.innerHTML=h;$('schedtxt').innerHTML=txt}
+for(const id of['mono','cam','pause','wait','preply','pstab','parrot','auto','freq','sr'])$(id).addEventListener('input',sched);$('level').oninput=showLevel;
 $('save').onclick=async()=>{if(await apply()){const j=await post('/api/save','');msg(srv(j.msg),j.ok?'ok':'bad')}};
 $('def').onclick=async()=>{const j=await post('/api/defaults','');await status(true);msg(srv(j.msg),'warn')};
 $('reload').onclick=()=>status(true).then(()=>msg('',''));

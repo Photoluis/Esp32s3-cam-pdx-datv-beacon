@@ -419,15 +419,30 @@ static bool beacon_pause(const pdx_cfg_t *c, uint32_t s)
         }
         return true;
     }
-    printf("BEACON pausa %u s: ascolto Parrot\n", (unsigned)s);
-    const int r = parrot_listen(s, c->parrot_stab);
-    pdx_led_idle();
-    if (r < 0) return false;
+    /* la ricezione parte da una radio pulita: dopo la TX la PHY è nello stato del modulatore (come per l'access point) */
     char cmd[40];
-    if (r > 0) snprintf(cmd, sizeof(cmd), "PARROTREPLY %u BEACON", (unsigned)c->parrot_reply);
-    else snprintf(cmd, sizeof(cmd), "BEACON");
+    snprintf(cmd, sizeof(cmd), "PARROTPAUSE %u", (unsigned)s);
     reboot_and_run(cmd);                                     /* non ritorna */
     return false;
+}
+
+/* PARROTPAUSE <s>, dopo il riavvio: ascolto per s secondi, poi risposta o ripresa del ciclo (altro riavvio) */
+static void parrot_pause_run(uint32_t s)
+{
+    pdx_web_stop();
+    printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
+    const int r = parrot_listen(s, cfg.parrot_stab);
+    pdx_led_idle();
+    if (r < 0) {                                             /* fermato con BOOT o dalla seriale */
+        while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
+        discard_input();
+        printf("BEACON fermo nella pausa: modo configurazione\n");
+        reboot_and_run("CONFIGMODE");
+    }
+    char cmd[40];
+    if (r > 0) snprintf(cmd, sizeof(cmd), "PARROTREPLY %u BEACON", (unsigned)cfg.parrot_reply);
+    else snprintf(cmd, sizeof(cmd), "BEACON");
+    reboot_and_run(cmd);
 }
 
 static void handle_cmd(char *line);
@@ -750,6 +765,16 @@ static void handle_cmd(char *line)
 
     } else if (!strcasecmp(argv[0], "CONFIGMODE")) {        /* dopo il riavvio di fine TX: solo configurazione */
         printf("OK modo configurazione (radio pulita, access point)\n");
+
+    } else if (!strcasecmp(argv[0], "PARROTPAUSE")) {       /* pausa del ciclo con il Parrot (dopo il riavvio) */
+        const long s = argc >= 2 ? atol(argv[1]) : 0;
+        if (s < 5 || s > 3600) { printf("ERR PARROTPAUSE <5..3600 s> [dry]\n"); return; }
+        if (argc >= 3 && !strcasecmp(argv[2], "dry")) {      /* prova: ascolto vero, nessun riavvio e nessuna TX */
+            const int r = parrot_listen((unsigned)s, cfg.parrot_stab);
+            printf("PARROTPAUSE dry: dopo la pausa %s\n", r > 0 ? "risposta (PARROTREPLY ... BEACON)" : r == 0 ? "ripresa del ciclo (BEACON)" : "configurazione (fermato)");
+            return;
+        }
+        parrot_pause_run((uint32_t)s);
 
     } else if (!strcasecmp(argv[0], "PARROT") || !strcasecmp(argv[0], "PARROTDEC")) {
         /* PARROT <ascolto_s> <risposta_s> [stabilizzazione_s] [dry]: ascolta sulla frequenza del beacon, cattura 2 s,
