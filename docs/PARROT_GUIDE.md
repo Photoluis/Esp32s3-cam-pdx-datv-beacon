@@ -66,6 +66,10 @@ test card 40 s, camera 0 s, pause 30 s, reply 40 s, wait 5 s:
 
 ![Reply to a QSO, 16:9](img/parrot_reply_16x9.png)
 
+![The reply received on the air on a Portsdown 4: QSO IZ7PDX at 500 kS, MER 13.5 dB, with the received constellation](img/parrot_reply_500k_portsdown.jpg)
+
+*On the air, 06/11/2026: reply at 500 kS received on a Portsdown 4 (MER 13.5 dB, D 9.5, RF −7 dBFS, constellation of the received signal in the corner).*
+
 - Top: the beacon callsign, temperature/uptime, frequency, SR, FEC and locator.
 - Red band (50% transparent): **QSO** and the callsign received, then the report: **MER** and margin **D** (MER minus
   the threshold of that FEC), **RF** level in dBFS (average power of the recording; 0 dBFS = full scale of the

@@ -66,6 +66,10 @@ Esempio: monoscopio 40 s, camera 0 s, pausa 30 s, risposta 40 s, attesa 5 s:
 
 ![Risposta a un QSO, 16:9](img/parrot_reply_16x9.png)
 
+![La risposta ricevuta in aria su un Portsdown 4: QSO IZ7PDX a 500 kS, MER 13,5 dB, con la costellazione ricevuta](img/parrot_reply_500k_portsdown.jpg)
+
+*In aria, 06/11/2026: risposta a 500 kS ricevuta su un Portsdown 4 (MER 13,5 dB, D 9,5, RF −7 dBFS, costellazione del segnale ricevuto nell'angolo).*
+
 - In alto: nominativo del beacon, temperatura/accensione, frequenza, SR, FEC e locatore.
 - Fascia rossa (trasparente al 50%): **QSO** e il nominativo ricevuto, poi il rapporto: **MER** e margine **D** (MER
   meno la soglia di quel FEC), livello **RF** in dBFS (potenza media della registrazione; 0 dBFS = fondo scala del
