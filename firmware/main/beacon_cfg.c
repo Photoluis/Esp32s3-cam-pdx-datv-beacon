@@ -52,6 +52,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .mono_src = PDX_MONO_STD, .cam_mode = PDX_CAMMODE_PIP, .pip_bg = 0, .ovl = 1, .fec = "3/4",
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
         .locator = "",         /* nessun locatore di fabbrica (come NOCALL): ognuno imposta il proprio */
+        .parrot_on = 0, .parrot_reply = 60, .parrot_stab = 3,
     };
 }
 
@@ -122,6 +123,9 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     tmp.callsign[sizeof(tmp.callsign) - 1] = 0;
     tmp.ap_pass[sizeof(tmp.ap_pass) - 1] = 0;
     tmp.locator[sizeof(tmp.locator) - 1] = 0;
+    /* la prima v1.2.0-dev salvava questi byte a zero (erano riservati) */
+    if (tmp.parrot_reply < 10 || tmp.parrot_reply > 250) tmp.parrot_reply = 60;
+    if (tmp.parrot_stab > 30) tmp.parrot_stab = 3;
     *c = tmp;
     return true;
 }
@@ -159,6 +163,11 @@ void pdx_cfg_print(const pdx_cfg_t *c)
            c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign,
            c->locator[0] ? c->locator : "-", c->cam_flip & PDX_CAMFLIP_H ? " ribaltata H" : "",
            c->cam_flip & PDX_CAMFLIP_V ? " ribaltata V" : (c->cam_flip ? "" : " dritta"));
+    printf("CFG Parrot %s: ascolto nelle pause, risposta %u s, stabilizzazione %u s\n", c->parrot_on ? "ON" : "OFF",
+           c->parrot_reply, c->parrot_stab);
+    if (c->parrot_on && c->pause_s < PDX_PARROT_PAUSE_MIN)
+        printf("ATTENZIONE Parrot acceso con pausa %u s: serve una pausa di almeno %u s per ascoltare\n", c->pause_s,
+               (unsigned)PDX_PARROT_PAUSE_MIN);
 }
 
 /* QTH locator Maidenhead: AA00 o AA00AA (campo A-R, quadrato 0-9, sottoquadrato A-X); salvato in maiuscolo */
@@ -285,12 +294,22 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->cam_flip |= bit;
         else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->cam_flip &= (uint8_t)~bit;
         else return "camh / camv ON/OFF";
+    } else if (!strcasecmp(key, "parrot")) {
+        if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->parrot_on = 1;
+        else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->parrot_on = 0;
+        else return "parrot ON/OFF";
+    } else if (!strcasecmp(key, "preply")) {
+        if (!parse_int(value, 10, 250, &v)) return "preply 10..250 s";
+        c->parrot_reply = (uint8_t)v;
+    } else if (!strcasecmp(key, "pstab")) {
+        if (!parse_int(value, 0, 30, &v)) return "pstab 0..30 s";
+        c->parrot_stab = (uint8_t)v;
     } else if (!strcasecmp(key, "xvtr")) {
         if (!strcasecmp(value, "sum")) c->xvtr = PDX_XVTR_SUM;
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem camh camv";
+        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem camh camv parrot preply pstab";
     }
     return NULL;
 }
@@ -360,7 +379,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     return ms + 50u >= want;
 }
 
-uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abort_fn idle_abort)
+uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_pause_fn pause_fn)
 {
     if (!c->mono_s && !c->cam_s) {
         printf("BEACON niente da trasmettere: monoscopio e camera a 0 s\n");
@@ -377,7 +396,7 @@ uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abo
         if (c->pause_s) {
             printf("BEACON pausa %u s (TX spenta)\n", c->pause_s);
             fflush(stdout);
-            if (!wait_s(c->pause_s, idle_abort)) return cycle;
+            if (pause_fn ? !pause_fn(c, c->pause_s) : !wait_s(c->pause_s, NULL)) return cycle;
         }
     }
 }

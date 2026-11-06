@@ -98,8 +98,10 @@ typedef struct {
     char call[16], fec[6];
     float mer, d, foff_hz;
     uint32_t sr;
+    uint32_t n;                      /* QSO ricevuti dall'accensione (la memoria RTC resta con i riavvii software) */
     uint32_t crc;
 } parrot_state_t;
+static bool beacon_pause(const pdx_cfg_t *c, uint32_t s);
 RTC_NOINIT_ATTR static parrot_state_t parrot;
 static uint32_t parrot_crc(void) { return esp_rom_crc32_le(0, (const uint8_t *)&parrot, offsetof(parrot_state_t, crc)); }
 static bool parrot_valid(void) { return parrot.magic == PARROT_MAGIC && parrot.crc == parrot_crc(); }
@@ -179,6 +181,16 @@ static bool stop_requested(void)
     return uart_has_byte() || gpio_get_level(BOOT_GPIO) == 0;
 }
 
+/* fine di una TX (o del ciclo): la radio è nello stato del modulatore e l'access point acceso subito dopo non riceve
+ * bene (06/11: il telefono vede la rete ma "password errata"). Si riavvia e si riparte in configurazione con la radio
+ * pulita, senza partenza automatica. */
+static void config_after_tx(void)
+{
+    while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));   /* BOOT rilasciato prima del riavvio */
+    pdx_led_idle();
+    reboot_and_run("CONFIGMODE");
+}
+
 static void run_beacon(void)
 {
     if (pdx_web_radio_dirty()) reboot_and_run("BEACON");
@@ -192,13 +204,11 @@ static void run_beacon(void)
     fflush(stdout);
     uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
     uart_flush_input(UART_NUM_0);
-    const uint32_t n = pdx_beacon_run(&snap, tx_stop_hw, stop_requested);
+    const uint32_t n = pdx_beacon_run(&snap, tx_stop_hw, beacon_pause);
     while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));   /* attende il rilascio di BOOT */
     discard_input();
     printf("BEACON fermo dopo %u cicli completi: modo configurazione\n", (unsigned)n);
-    pdx_led_idle();
-    pdx_web_set_mode("configurazione");
-    pdx_web_start();
+    config_after_tx();
 }
 
 static bool parse_mhz(const char *s, uint32_t *khz)
@@ -250,9 +260,7 @@ static void tx_end_note(uint32_t ms, bool stats)
                (unsigned)st->period, (unsigned)st->samples, (unsigned)st->lag_max, (unsigned)st->late);
     }
     printf("TX OFF dopo %u ms\n", (unsigned)ms);
-    pdx_led_idle();
-    pdx_web_set_mode("configurazione");
-    pdx_web_start();
+    config_after_tx();
 }
 
 /* parametri del TS dal vivo dalla configurazione (sfondo PiP e sovrimpressione come nel beacon) */
@@ -310,6 +318,116 @@ static void media_upload(int argc, char **argv)
     char d[96];
     pdx_media_describe(m, d, sizeof(d));
     printf("OK caricato: %s\n", d);
+}
+
+/* ------------------------------------------------------------ Parrot: ascolto, QSO, pause del ciclo */
+
+static uint8_t *parrot_ts, *parrot_ok;          /* pacchetti TS ricostruiti e loro CRC */
+
+static bool parrot_bufs(void)
+{
+    if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
+    if (!parrot_ts) parrot_ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+    if (!parrot_ok) parrot_ok = heap_caps_malloc(RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+    return rx_buf && parrot_ts && parrot_ok;
+}
+
+static void parrot_store(const s2rx_report_t *rep)
+{
+    const uint32_t n = parrot_valid() ? parrot.n + 1u : 1u;
+    memset(&parrot, 0, sizeof(parrot));
+    parrot.magic = PARROT_MAGIC;
+    snprintf(parrot.call, sizeof(parrot.call), "%s", rep->call);
+    snprintf(parrot.fec, sizeof(parrot.fec), "%s", rep->fec);
+    parrot.mer = rep->mer_db; parrot.d = rep->d_margin_db; parrot.foff_hz = rep->freq_hz; parrot.sr = rep->sr;
+    parrot.n = n;
+    parrot.crc = parrot_crc();
+    parrot_texts();
+    printf("PARROT QSO %u: %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_prov);
+}
+
+/* ultimo QSO per la pagina web (JSON, "null" se nessuno) */
+const char *pdx_parrot_json(void)
+{
+    static char s[160];
+    if (!parrot_valid()) return "null";
+    snprintf(s, sizeof(s), "{\"n\":%u,\"call\":\"%s\",\"mer\":%.1f,\"d\":%.1f,\"sr\":%u,\"fec\":\"%s\",\"foff\":%.1f}",
+             (unsigned)parrot.n, parrot.call, (double)parrot.mer, (double)parrot.d, (unsigned)((parrot.sr + 500u) / 1000u),
+             parrot.fec, (double)parrot.foff_hz / 1000.0);
+    return s;
+}
+
+/* ascolto sulla frequenza del beacon per listen_s secondi: occhiate di 60 ms allo spettro; con un segnale, attesa
+ * stab_s, cattura di 2 s e decodifica. 1 = QSO letto (in "parrot"), 0 = nessun QSO, -1 = fermato o errore.
+ * Dopo l'ascolto la radio non è più nello stato del modulatore: la TX seguente richiede un riavvio. */
+static int parrot_listen(unsigned listen_s, unsigned stab_s)
+{
+    if (!parrot_bufs()) { printf("ERR memoria\n"); return -1; }
+    s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+    s2rx_report_t rep;
+    pdx_web_mark_radio_dirty();
+    const uint32_t lo = cfg.freq_khz * 1000u;
+    const char *e = pdx_rx_start(lo, PDX_RX_GAIN_DEF);
+    if (e) { printf("ERR RX %s\n", e); return -1; }
+    printf("PARROT ascolto su %.3f MHz per %u s (un tasto o BOOT per fermare)\n", cfg.freq_khz / 1000.0, listen_s);
+    fflush(stdout);
+    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
+    uart_flush_input(UART_NUM_0);
+    const int64_t t_end = esp_timer_get_time() + (int64_t)listen_s * 1000000;
+    uint32_t looks = 0;
+    pdx_rx_stream_stats_t st;
+    while (esp_timer_get_time() < t_end) {
+        if (stop_requested()) { printf("PARROT ascolto fermato\n"); return -1; }
+        /* radio risintonizzata a ogni occhiata: nelle pause la catena RX perde la configurazione (RF del 04/11) */
+        if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) ||
+            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        looks++;
+        float fc, w, pk;
+        if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
+            vTaskDelay(pdMS_TO_TICKS(150));
+            continue;
+        }
+        printf("PARROT segnale dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
+               (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk, stab_s);
+        fflush(stdout);
+        vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
+        if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) || pdx_rx_stream((int8_t *)rx_buf, 2000000u, 16, 3, 8, &st)) continue;
+        rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
+        s2rx_set_board_capture(true);
+        pdx_led_idle();                                      /* decodifica: radio non in ascolto */
+        printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
+               (unsigned)st.samples_out, (unsigned)st.overruns);
+        fflush(stdout);
+        s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
+        if (rep.call[0]) { parrot_store(&rep); return 1; }
+        printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
+    }
+    printf("PARROT fine dell'ascolto: nessun QSO (%u occhiate)\n", (unsigned)looks);
+    return 0;
+}
+
+/* pausa del ciclo del beacon: con il Parrot acceso si ascolta per tutta la pausa; poi si riavvia (radio pulita) per
+ * rispondere ("PARROTREPLY <s> BEACON", il ciclo riprende dopo la risposta) o per riprendere il ciclo ("BEACON").
+ * Restituisce false se la pausa è stata fermata. */
+static bool beacon_pause(const pdx_cfg_t *c, uint32_t s)
+{
+    if (!c->parrot_on) {
+        const int64_t end = esp_timer_get_time() + (int64_t)s * 1000000;
+        while (esp_timer_get_time() < end) {
+            if (stop_requested()) return false;
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        return true;
+    }
+    printf("BEACON pausa %u s: ascolto Parrot\n", (unsigned)s);
+    const int r = parrot_listen(s, c->parrot_stab);
+    pdx_led_idle();
+    if (r < 0) return false;
+    char cmd[40];
+    if (r > 0) snprintf(cmd, sizeof(cmd), "PARROTREPLY %u BEACON", (unsigned)c->parrot_reply);
+    else snprintf(cmd, sizeof(cmd), "BEACON");
+    reboot_and_run(cmd);                                     /* non ritorna */
+    return false;
 }
 
 static void handle_cmd(char *line);
@@ -630,6 +748,9 @@ static void handle_cmd(char *line)
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
 
+    } else if (!strcasecmp(argv[0], "CONFIGMODE")) {        /* dopo il riavvio di fine TX: solo configurazione */
+        printf("OK modo configurazione (radio pulita, access point)\n");
+
     } else if (!strcasecmp(argv[0], "PARROT") || !strcasecmp(argv[0], "PARROTDEC")) {
         /* PARROT <ascolto_s> <risposta_s> [stabilizzazione_s] [dry]: ascolta sulla frequenza del beacon, cattura 2 s,
          * decodifica, poi riavvia e risponde con QRZ e QRK in sovrimpressione (dry: senza TX).
@@ -644,72 +765,20 @@ static void handle_cmd(char *line)
             printf("ERR PARROT <ascolto 5..3600 s> <risposta 10..%u s> [stabilizzazione s] [dry]\n", (unsigned)TX_MAX_S);
             return;
         }
-        if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
-        static uint8_t *pts, *pok;
-        if (!pts) pts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
-        if (!pok) pok = heap_caps_malloc(RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
-        if (!rx_buf || !pts || !pok) { printf("ERR memoria\n"); return; }
+        if (!parrot_bufs()) { printf("ERR memoria\n"); return; }
         pdx_web_set_mode("Parrot: ascolto");
         pdx_web_stop();
-        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
-        s2rx_report_t rep;
-        bool got = false;
         if (only_dec) {
             if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
+            s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms};
+            s2rx_report_t rep;
             s2rx_set_board_capture(rx_board);
-            s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, pts, RXDEC_TS_MAX, pok);
-            got = rep.call[0] != 0;
-        } else {
-            pdx_web_mark_radio_dirty();
-            const uint32_t lo = cfg.freq_khz * 1000u;
-            const char *e = pdx_rx_start(lo, PDX_RX_GAIN_DEF);
-            if (e) { printf("ERR RX %s\n", e); return; }
-            printf("PARROT ascolto su %.3f MHz per %u s (un tasto o BOOT per fermare)\n", cfg.freq_khz / 1000.0, listen_s);
-            fflush(stdout);
-            uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
-            uart_flush_input(UART_NUM_0);
-            const int64_t t_end = esp_timer_get_time() + (int64_t)listen_s * 1000000;
-            uint32_t looks = 0;
-            pdx_rx_stream_stats_t st;
-            while (!got && esp_timer_get_time() < t_end && !stop_requested()) {
-                /* occhiata di 60 ms: solo lo spettro */
-                /* radio risintonizzata a ogni occhiata: nelle pause la catena RX perde la configurazione (RF del 04/11:
-                 * solo la prima occhiata dopo l'avvio vedeva il segnale) */
-                if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) ||
-                    pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
-                looks++;
-                float fc, w, pk;
-                if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                    continue;
-                }
-                printf("PARROT segnale dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
-                       (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk, stab_s);
-                fflush(stdout);
-                vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
-                const uint32_t n = 2000000u;
-                if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) || pdx_rx_stream((int8_t *)rx_buf, n, 16, 3, 8, &st)) continue;
-                rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
-                s2rx_set_board_capture(true);
-                pdx_led_idle();                              /* decodifica: radio non in ascolto */
-                printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
-                       (unsigned)st.samples_out, (unsigned)st.overruns);
-                fflush(stdout);
-                s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, pts, RXDEC_TS_MAX, pok);
-                got = rep.call[0] != 0;
-                if (!got) printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
-            }
-            if (!got) { printf("PARROT fine dell'ascolto: nessun QSO (%u occhiate)\n", (unsigned)looks); return; }
+            s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
+            if (!rep.call[0]) { printf("PARROT nessun nominativo letto\n"); return; }
+            parrot_store(&rep);
+        } else if (parrot_listen(listen_s, stab_s) <= 0) {
+            return;
         }
-        if (!got) { printf("PARROT nessun nominativo letto\n"); return; }
-        memset(&parrot, 0, sizeof(parrot));
-        parrot.magic = PARROT_MAGIC;
-        snprintf(parrot.call, sizeof(parrot.call), "%s", rep.call);
-        snprintf(parrot.fec, sizeof(parrot.fec), "%s", rep.fec);
-        parrot.mer = rep.mer_db; parrot.d = rep.d_margin_db; parrot.foff_hz = rep.freq_hz; parrot.sr = rep.sr;
-        parrot.crc = parrot_crc();
-        parrot_texts();
-        printf("PARROT QSO: %s | %s | SDT \"%s\"\n", parrot_l1, parrot_l2, parrot_prov);
         if (only_dec || dry) { printf("PARROT %s: nessuna TX\n", only_dec ? "solo decodifica" : "prova a secco"); return; }
         char c[32];
         snprintf(c, sizeof(c), "PARROTREPLY %u", reply_s);
@@ -749,6 +818,15 @@ static void handle_cmd(char *line)
         const char *why;
         const uint32_t ms = pdx_live_play(&lc, secs * 1000u, tx_stop_hw, &why);
         if (why) printf("ERR %s\n", why);
+        /* PARROTREPLY <s> BEACON: risposta data dentro il ciclo del beacon, che riprende subito (la radio è già nello
+         * stato del modulatore); se la risposta è stata fermata si va in configurazione come sempre */
+        if (argc >= 3 && !strcasecmp(argv[2], "BEACON") && ms + 50u >= secs * 1000u) {
+            discard_input();
+            printf("TX OFF dopo %u ms: il ciclo del beacon riprende\n", (unsigned)ms);
+            pdx_led_idle();
+            run_beacon();
+            return;
+        }
         tx_end_note(ms, true);
 
     } else if (!strcasecmp(argv[0], "RXLOAD")) {             /* RXLOAD <byte> <fs>: cattura dal PC in PSRAM (prove) */

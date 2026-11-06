@@ -61,13 +61,14 @@ static int cfg_json(char *b, size_t n)
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u,\"camh\":%d,\"camv\":%d}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u,\"camh\":%d,\"camv\":%d,\"parrot\":%d,\"preply\":%u,\"pstab\":%u}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
                     cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv,
                     cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem, cfg->locator, (unsigned)(pdx_cfg_sr(cfg) / 1000u),
-                    (cfg->cam_flip & PDX_CAMFLIP_H) ? 1 : 0, (cfg->cam_flip & PDX_CAMFLIP_V) ? 1 : 0);
+                    (cfg->cam_flip & PDX_CAMFLIP_H) ? 1 : 0, (cfg->cam_flip & PDX_CAMFLIP_V) ? 1 : 0, cfg->parrot_on,
+                    cfg->parrot_reply, cfg->parrot_stab);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -89,7 +90,7 @@ static esp_err_t h_status(httpd_req_t *r)
 {
     client_seen = true;
     pdx_led_activity();
-    char c[480], b[1160], md[4][96];
+    char c[560], b[1400], md[4][96];
     pdx_cfg_lock();
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
@@ -97,12 +98,12 @@ static esp_err_t h_status(httpd_req_t *r)
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
              "\"media\":{\"es_std\":\"%s\",\"es_usr\":\"%s\",\"img_std\":\"%s\",\"img_usr\":\"%s\","
-             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f}",
+             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f,\"qso\":%s}",
              fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, md[0], md[1], md[2], md[3],
              pdx_media_map(PDX_MEDIA_ES_USR, NULL) ? "true" : "false",
              pdx_media_map(PDX_MEDIA_IMG_USR, NULL) ? "true" : "false", (unsigned)PDX_ES_USR_SIZE,
              (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX,
-             isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read());
+             isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read(), pdx_parrot_json());
     return send_json(r, b);
 }
 
@@ -133,7 +134,7 @@ static esp_err_t h_set(httpd_req_t *r)
         got += k;
     }
     body[got] = 0;
-    char errs[300] = "", c[480], out[900];
+    char errs[300] = "", c[560], out[960];
     pdx_cfg_lock();
     for (char *save = NULL, *kv = strtok_r(body, "&", &save); kv; kv = strtok_r(NULL, "&", &save)) {
         char *eq = strchr(kv, '=');

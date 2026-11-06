@@ -36,8 +36,12 @@ typedef struct {
     char locator[8];        /* QTH locator Maidenhead (4 o 6 caratteri, "" = non mostrato) */
     /* dalla versione 6 (v1.2.0) */
     uint8_t cam_flip;       /* bit 0: camera ribaltata in orizzontale, bit 1: in verticale */
-    uint8_t reserved6[3];
+    uint8_t parrot_on;      /* Parrot: ascolto durante le pause del ciclo, risposta con QRZ e QRK */
+    uint8_t parrot_reply;   /* durata della risposta, s (10..250) */
+    uint8_t parrot_stab;    /* attesa tra il segnale trovato e la cattura, s (0..30) */
 } pdx_cfg_t;
+
+#define PDX_PARROT_PAUSE_MIN 30u   /* pausa minima consigliata con il Parrot: occhiate + cattura + decodifica ~25 s */
 
 #define PDX_CAMFLIP_H 1u
 #define PDX_CAMFLIP_V 2u
@@ -74,4 +78,6 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value);
 
 /* ciclo del beacon fino allo stop: tx_abort è chiamata dentro i cicli di modulazione (deve leggere solo registri),
  * idle_abort nelle pause; restituisce il numero di cicli completati */
-uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abort_fn idle_abort);
+/* pausa tra un ciclo e l'altro (s secondi, TX spenta): false se fermata. Con il Parrot acceso ascolta e può riavviare */
+typedef bool (*pdx_pause_fn)(const pdx_cfg_t *c, uint32_t s);
+uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_pause_fn pause_fn);

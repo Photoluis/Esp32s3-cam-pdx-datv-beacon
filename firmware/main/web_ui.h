@@ -20,6 +20,9 @@ bool pdx_web_seen_client(void);            /* true se la pagina è stata aperta 
 bool pdx_web_radio_dirty(void);
 void pdx_web_mark_radio_dirty(void);   /* la ricezione (Parrot) ha cambiato la PHY: la prossima TX riavvia */
 
+/* ultimo QSO del Parrot in JSON ("null" se nessuno), da main.c */
+const char *pdx_parrot_json(void);
+
 /* accesso alla configurazione condiviso con il server web */
 void pdx_cfg_lock(void);
 void pdx_cfg_unlock(void);
