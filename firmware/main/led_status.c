@@ -198,6 +198,18 @@ void pdx_led_tx(double level_db)
     unlock();
 }
 
+/* nominativo acquisito dal Parrot (06/11): verde al 50% che lampeggia veloce (~8 Hz) finché non cambia stato */
+void pdx_led_qso(void)
+{
+    lock();
+    set_base();
+    last_half_ms = 60;
+    last_rgb[0] = 0; last_rgb[1] = 128; last_rgb[2] = 0;
+    last_kind = 1;
+    show_blink();
+    unlock();
+}
+
 void pdx_led_set_mode(int mode)
 {
     lock();

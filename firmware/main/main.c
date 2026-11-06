@@ -37,6 +37,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include "driver/gpio.h"
 #include "driver/uart.h"
@@ -374,18 +375,45 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
     uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
     uart_flush_input(UART_NUM_0);
     const int64_t t_end = esp_timer_get_time() + (int64_t)listen_s * 1000000;
-    uint32_t looks = 0;
+    uint32_t looks = 0, fails = 0;
+    float best_pk = 0, best_fc = 0, best_w = 0;              /* diagnosi (06/11): occhiata migliore sotto la soglia */
+    int64_t t_diag = esp_timer_get_time() + 5000000;
+    const int64_t t_warm = esp_timer_get_time() + 1500000;
     pdx_rx_stream_stats_t st;
     while (esp_timer_get_time() < t_end) {
         if (stop_requested()) { printf("PARROT ascolto fermato\n"); return -1; }
+        if (esp_timer_get_time() > t_diag) {
+            printf("PARROT ascolto: %u occhiate (%u errori RX), picco max %.1f dB a %+.1f kHz largo %.0f kHz\n",
+                   (unsigned)looks, (unsigned)fails, (double)best_pk, (double)best_fc / 1000.0, (double)best_w / 1000.0);
+            fflush(stdout);
+            best_pk = 0;
+            t_diag = esp_timer_get_time() + 5000000;
+        }
         /* radio risintonizzata a ogni occhiata: nelle pause la catena RX perde la configurazione (RF del 04/11) */
         if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) ||
-            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { fails++; vTaskDelay(pdMS_TO_TICKS(100)); continue; }
         looks++;
-        float fc, w, pk;
+        /* riscaldamento (06/11): nel primo secondo dopo l'accensione della RX lo spettro ha gobbe finte (8-11 dB) */
+        if (esp_timer_get_time() < t_warm) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+        float fc = 0, w = 0, pk = 0;
         if (!s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 8.0f, &fc, &w, &pk)) {
+            if (pk > best_pk) { best_pk = pk; best_fc = fc; best_w = w; }
             vTaskDelay(pdMS_TO_TICKS(150));
             continue;
+        }
+        {   /* seconda occhiata di conferma (06/11): un disturbo a +110 kHz largo 104 kHz faceva perdere attesa e cattura */
+            float fc2 = 0, w2 = 0, pk2 = 0;
+            const bool ok2 = !pdx_rx_start(lo, PDX_RX_GAIN_DEF) &&
+                             !pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st) &&
+                             s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 6.0f, &fc2, &w2, &pk2) &&
+                             fabsf(fc2 - fc) < 30e3f && w2 > 0.7f * w && w2 < 1.4f * w;
+            if (!ok2) {
+                printf("PARROT scartato: %+.1f kHz largo %.0f kHz %.1f dB non confermato (%+.1f kHz %.0f kHz %.1f dB)\n",
+                       (double)fc / 1000.0, (double)w / 1000.0, (double)pk,
+                       (double)fc2 / 1000.0, (double)w2 / 1000.0, (double)pk2);
+                fflush(stdout);
+                continue;
+            }
         }
         printf("PARROT segnale dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
                (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk, stab_s);
@@ -399,7 +427,12 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
                (unsigned)st.samples_out, (unsigned)st.overruns);
         fflush(stdout);
         s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
-        if (rep.call[0]) { parrot_store(&rep); return 1; }
+        if (rep.call[0]) {
+            parrot_store(&rep);
+            pdx_led_qso();                                   /* verde veloce: nominativo acquisito (utente, 06/11) */
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            return 1;
+        }
         printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
     }
     printf("PARROT fine dell'ascolto: nessun QSO (%u occhiate)\n", (unsigned)looks);
@@ -432,7 +465,7 @@ static void parrot_pause_run(uint32_t s)
     pdx_web_stop();
     printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
     const int r = parrot_listen(s, cfg.parrot_stab);
-    pdx_led_idle();
+    if (r <= 0) pdx_led_idle();                              /* con un QSO il verde veloce resta fino al riavvio */
     if (r < 0) {                                             /* fermato con BOOT o dalla seriale */
         while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
         discard_input();
