@@ -39,3 +39,7 @@ CONFIG_CAMERA_CORE1=y
 # tabella delle partizioni con la partizione "symbols" (13,9 MB)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# Parrot P4 (06/11): riquadro del QSO in PSRAM non inizializzata, conservato attraverso il riavvio software
+CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y
+# il decoder H.264 decodifica una sola immagine per QSO: codice in flash, la RAM interna serve alla camera
+# CONFIG_ESP_H264_DECODER_IRAM is not set

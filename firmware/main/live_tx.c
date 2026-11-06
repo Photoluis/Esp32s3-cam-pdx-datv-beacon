@@ -58,17 +58,20 @@ static void live_overlay(uint8_t *yuyv, int w, int h, void *ctx)
     }
     if (L->cfg->telem) pdx_ovl_text(yuyv, w, h, 6, L->cfg->ovl_full ? 60 : 4, L->cfg->telem, 1);
     if (L->cfg->qrk1 && L->cfg->qrk1[0]) {                   /* Parrot: risposta a chi è stato ricevuto */
-        pdx_ovl_box(yuyv, w, h, 0, 88, w, 64, 60, 100, 200);  /* fascia rossa */
-        pdx_ovl_text(yuyv, w, h, 8, 94, L->cfg->qrk1, 2);
-        if (L->cfg->qrk2) pdx_ovl_text(yuyv, w, h, 8, 132, L->cfg->qrk2, 1);
+        /* fascia rossa 80..146: QSO <QRZ> (x2), MER/D/RF, SR/FEC/scarto; sotto, a destra, il riquadro del ricevuto */
+        pdx_ovl_box(yuyv, w, h, 0, 80, w, 66, 60, 100, 200);
+        pdx_ovl_text(yuyv, w, h, 8, 81, L->cfg->qrk1, 2);
+        if (L->cfg->qrk2) pdx_ovl_text(yuyv, w, h, 8, 113, L->cfg->qrk2, 1);
+        if (L->cfg->qrk3) pdx_ovl_text(yuyv, w, h, 8, 129, L->cfg->qrk3, 1);
     }
     static const char *const tag[] = {"", "CAM", "PIP", "IMG"};
     snprintf(s, sizeof(s), "%s %05u  T %02u:%02u", tag[L->cfg->video], (unsigned)L->cam_frames, (unsigned)(t / 60u),
              (unsigned)(t % 60u));
     pdx_ovl_text(yuyv, w, h, 6, h - 20, s, 1);
     /* barra che avanza di un passo per fotogramma: un fotogramma perso si vede come un salto */
-    const int x = 6 + (int)((L->cam_frames * 12u) % (unsigned)(w - 24));
-    pdx_ovl_box(yuyv, w, h, 0, h - 26, w, 4, 16, 128, 128);
+    const int bw = L->cfg->qrk_pip ? w - 172 : w;           /* con il riquadro la barra si ferma prima */
+    const int x = 6 + (int)((L->cam_frames * 12u) % (unsigned)(bw - 24));
+    pdx_ovl_box(yuyv, w, h, 0, h - 26, bw, 4, 16, 128, 128);
     pdx_ovl_box(yuyv, w, h, x, h - 26, 12, 4, 210, 16, 146);
 }
 

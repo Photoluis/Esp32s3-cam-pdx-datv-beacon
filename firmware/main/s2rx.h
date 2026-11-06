@@ -12,6 +12,8 @@ typedef struct {
     void (*log)(const char *s);      /* facoltativo */
     uint32_t (*ms)(void);            /* facoltativo: millisecondi, per i tempi */
     void (*on_call)(const char *call);   /* facoltativo: nominativo letto dalla SDT durante la decodifica */
+    int16_t *cst;                    /* facoltativo: simboli di un frame per la costellazione, I/Q x 8192 / |s| medio */
+    uint32_t cst_max;                /* coppie I/Q che cst può contenere */
 } s2rx_env_t;
 
 typedef struct {
@@ -24,6 +26,7 @@ typedef struct {
     char fec[6];
     float mer_db, d_margin_db;
     uint32_t ts_packets, ts_crc_ok, ts_crc_bad;
+    uint32_t cst_n;                  /* simboli messi in env->cst */
     char service[48], provider[48], call[16];
     uint8_t vtype, atype;            /* stream_type del video e dell'audio (PMT) */
     uint32_t ms_front, ms_sync, ms_frames, ms_total;

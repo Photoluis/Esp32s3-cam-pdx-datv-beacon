@@ -65,6 +65,8 @@
 #include "chip_temp.h"
 #include "rx_s3.h"
 #include "s2rx.h"
+#include "parrot_pip.h"
+#include "overlay.h"
 #include "esp_rom_crc.h"
 #include <ctype.h>
 
@@ -100,18 +102,21 @@ typedef struct {
     float mer, d, foff_hz;
     uint32_t sr;
     uint32_t n;                      /* QSO ricevuti dall'accensione (la memoria RTC resta con i riavvii software) */
+    float rf_dbfs;                   /* potenza media della cattura in dBFS (guadagno RX fisso, non tarata in dBm) */
     uint32_t crc;
 } parrot_state_t;
 static bool beacon_pause(const pdx_cfg_t *c, uint32_t s);
 RTC_NOINIT_ATTR static parrot_state_t parrot;
 static uint32_t parrot_crc(void) { return esp_rom_crc32_le(0, (const uint8_t *)&parrot, offsetof(parrot_state_t, crc)); }
 static bool parrot_valid(void) { return parrot.magic == PARROT_MAGIC && parrot.crc == parrot_crc(); }
-static char parrot_l1[24], parrot_l2[48], parrot_prov[40];
+static char parrot_l1[24], parrot_l2[48], parrot_l3[40], parrot_prov[40];
 static void parrot_texts(void)
 {
     snprintf(parrot_l1, sizeof(parrot_l1), "QSO %s", parrot.call);
-    snprintf(parrot_l2, sizeof(parrot_l2), "MER %.1f dB D%.1f %ukS %s %+.1f kHz", (double)parrot.mer, (double)parrot.d,
-             (unsigned)((parrot.sr + 500u) / 1000u), parrot.fec, (double)parrot.foff_hz / 1000.0);
+    snprintf(parrot_l2, sizeof(parrot_l2), "MER %.1f dB  D%.1f  RF %.0f dBFS", (double)parrot.mer, (double)parrot.d,
+             (double)parrot.rf_dbfs);
+    snprintf(parrot_l3, sizeof(parrot_l3), "%ukS %s  %+.1f kHz", (unsigned)((parrot.sr + 500u) / 1000u), parrot.fec,
+             (double)parrot.foff_hz / 1000.0);
     snprintf(parrot_prov, sizeof(parrot_prov), "QRK %s %.1fdB D%.1f", parrot.call, (double)parrot.mer, (double)parrot.d);
 }
 
@@ -324,16 +329,35 @@ static void media_upload(int argc, char **argv)
 /* ------------------------------------------------------------ Parrot: ascolto, QSO, pause del ciclo */
 
 static uint8_t *parrot_ts, *parrot_ok;          /* pacchetti TS ricostruiti e loro CRC */
+static int16_t *parrot_cst;                     /* simboli per la costellazione del riquadro */
+#define PARROT_CST_MAX 3000u
 
 static bool parrot_bufs(void)
 {
     if (!rx_buf) rx_buf = heap_caps_malloc(RX_BUF_BYTES, MALLOC_CAP_SPIRAM);
     if (!parrot_ts) parrot_ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
     if (!parrot_ok) parrot_ok = heap_caps_malloc(RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
+    if (!parrot_cst) parrot_cst = heap_caps_malloc(PARROT_CST_MAX * 4u, MALLOC_CAP_SPIRAM);
     return rx_buf && parrot_ts && parrot_ok;
 }
 
-static void parrot_store(const s2rx_report_t *rep)
+/* potenza media della cattura (int8 I/Q, senza la continua): 0 dBFS = I e Q fissi a 127 */
+static float capture_dbfs(const int8_t *iq, uint32_t n)
+{
+    if (!n) return -99.0f;
+    int64_t si = 0, sq = 0;
+    for (uint32_t i = 0; i < n; i++) { si += iq[2 * i]; sq += iq[2 * i + 1]; }
+    const float mi = (float)si / n, mq = (float)sq / n;
+    double p = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        const float a = iq[2 * i] - mi, b = iq[2 * i + 1] - mq;
+        p += a * a + b * b;
+    }
+    p /= n;
+    return p > 0 ? (float)(10.0 * log10(p / (2.0 * 127.0 * 127.0))) : -99.0f;
+}
+
+static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
 {
     const uint32_t n = parrot_valid() ? parrot.n + 1u : 1u;
     memset(&parrot, 0, sizeof(parrot));
@@ -341,10 +365,26 @@ static void parrot_store(const s2rx_report_t *rep)
     snprintf(parrot.call, sizeof(parrot.call), "%s", rep->call);
     snprintf(parrot.fec, sizeof(parrot.fec), "%s", rep->fec);
     parrot.mer = rep->mer_db; parrot.d = rep->d_margin_db; parrot.foff_hz = rep->freq_hz; parrot.sr = rep->sr;
+    parrot.rf_dbfs = rf_dbfs;
     parrot.n = n;
     parrot.crc = parrot_crc();
     parrot_texts();
-    printf("PARROT QSO %u: %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_prov);
+    printf("PARROT QSO %u: %s | %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_l3, parrot_prov);
+    /* riquadro per la risposta: immagine H.264 ricevuta, altrimenti la costellazione */
+    const int64_t t0 = esp_timer_get_time();
+    char info[32];
+    const uint32_t np = rep->ts_packets < RXDEC_TS_MAX ? rep->ts_packets : RXDEC_TS_MAX;
+    if (pdx_pip_from_ts(parrot_ts, parrot_ok, np, info, sizeof(info))) {
+        printf("PARROT riquadro: immagine ricevuta %s (%u ms)\n", info, (unsigned)((esp_timer_get_time() - t0) / 1000));
+    } else if (rep->cst_n) {
+        char l[28];
+        snprintf(l, sizeof(l), "RX %s QPSK", !strcmp(info, "H.265") ? "H.265" : "");
+        pdx_pip_from_const(parrot_cst, rep->cst_n, !strcmp(info, "H.265") ? l : "RX QPSK");
+        printf("PARROT riquadro: costellazione (%s, %u simboli)\n", info, (unsigned)rep->cst_n);
+    } else {
+        pdx_pip_clear();
+        printf("PARROT riquadro: nessuno (%s)\n", info);
+    }
 }
 
 /* ultimo QSO per la pagina web (JSON, "null" se nessuno) */
@@ -372,7 +412,7 @@ static void parrot_on_call(const char *call)
 static int parrot_listen(unsigned listen_s, unsigned stab_s)
 {
     if (!parrot_bufs()) { printf("ERR memoria\n"); return -1; }
-    s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call};
+    s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call, parrot_cst, PARROT_CST_MAX};
     s2rx_report_t rep;
     pdx_web_mark_radio_dirty();
     const uint32_t lo = cfg.freq_khz * 1000u;
@@ -436,8 +476,8 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
         fflush(stdout);
         s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
         if (rep.call[0]) {
-            parrot_store(&rep);
-            pdx_led_qso();                   /* verde veloce fino alla risposta (già acceso da on_call a metà decodifica) */
+            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, st.samples_out));
+            pdx_led_qso();                  /* verde veloce fino alla risposta (già acceso da on_call a metà decodifica) */
             return 1;
         }
         printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
@@ -835,13 +875,13 @@ static void handle_cmd(char *line)
         pdx_web_stop();
         if (only_dec) {
             if (!rx_len) { printf("ERR nessuna cattura\n"); return; }
-            s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call};
+            s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call, parrot_cst, PARROT_CST_MAX};
             s2rx_report_t rep;
             s2rx_set_board_capture(rx_board);
             s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
             pdx_led_idle();
             if (!rep.call[0]) { printf("PARROT nessun nominativo letto\n"); return; }
-            parrot_store(&rep);
+            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, rx_len / 2u));
         } else if (parrot_listen(listen_s, stab_s) <= 0) {
             return;
         }
@@ -860,9 +900,30 @@ static void handle_cmd(char *line)
         pdx_live_cfg_t lc;
         live_cfg_from(&lc, PDX_LV_IMG, cfg.freq_khz, cfg.amp, cfg.fec);
         lc.bg = pdx_media_map(PDX_MEDIA_IMG_STD, NULL);              /* barre standard con i dati in sovrimpressione */
+        if (lc.bg && pdx_pip_valid()) {
+            /* riquadro del ricevuto (immagine H.264 o costellazione) in basso a destra, sotto la fascia del QRK */
+            static uint8_t *bgp;
+            if (!bgp) bgp = heap_caps_malloc(PDX_IMG_BYTES, MALLOC_CAP_SPIRAM);
+            if (bgp) {
+                memcpy(bgp, lc.bg, PDX_IMG_BYTES);
+                uint8_t *img = bgp + PDX_IMG_HDR;
+                pdx_pip_paste(img, PDX_IMG_W, PDX_IMG_H, PDX_IMG_W - PDX_PIP_W - 2, PDX_IMG_H - PDX_PIP_H - 1);
+                const char *lb = pdx_pip_label();
+                char l1[16] = "", l2[24] = "";
+                const char *sp = strchr(lb + 3, ' ');                /* "RX H.264 640x360" -> "RX H.264" / "640x360" */
+                if (sp) { snprintf(l1, sizeof(l1), "%.*s", (int)(sp - lb), lb); snprintf(l2, sizeof(l2), "%s", sp + 1); }
+                else snprintf(l1, sizeof(l1), "%s", lb);
+                pdx_ovl_text(img, PDX_IMG_W, PDX_IMG_H, 6, 156, l1, 1);
+                if (l2[0]) pdx_ovl_text(img, PDX_IMG_W, PDX_IMG_H, 6, 174, l2, 1);
+                lc.bg = bgp;
+                lc.qrk_pip = true;
+                printf("PARROT riquadro nella risposta: %s\n", lb);
+            }
+        }
         lc.ovl_full = true;
         lc.qrk1 = parrot_l1;
         lc.qrk2 = parrot_l2;
+        lc.qrk3 = parrot_l3;
         lc.provider = parrot_prov;
         /* si risponde con il symbol rate della stazione ricevuta (il suo ricevitore è già lì), al massimo 500 kS */
         { static const uint32_t SRS[] = {125000, 250000, 333000, 500000}; uint32_t b = SRS[0];
@@ -948,7 +1009,7 @@ static void handle_cmd(char *line)
         if (!ts) ts = heap_caps_malloc(188u * RXDEC_TS_MAX, MALLOC_CAP_SPIRAM);
         if (!ts || !ok) { printf("ERR memoria\n"); return; }
         pdx_web_stop();
-        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, NULL};
+        s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, NULL, NULL, 0};
         s2rx_report_t rep;
         printf("RXDEC %u campioni a %u S/s, PSRAM libera %u KB\n", (unsigned)(rx_len / 2u), (unsigned)rx_fs,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));

@@ -29,7 +29,8 @@ typedef struct {
     const char *telem;                   /* riga di telemetria (NULL = nessuna), preparata prima della TX */
     uint64_t freq_khz;                   /* frequenza finale in aria, per la sovrimpressione */
     const char *locator;                 /* QTH locator in sovrimpressione (NULL o "" = nessuno) */
-    const char *qrk1, *qrk2;             /* Parrot: "QSO <QRZ>" e dati del QRK, su una fascia (NULL = niente) */
+    const char *qrk1, *qrk2, *qrk3;      /* Parrot: "QSO <QRZ>" e dati del QRK, su una fascia (NULL = niente) */
+    bool qrk_pip;                        /* Parrot: riquadro del ricevuto in basso a destra (barra di avanzamento accorciata) */
 } pdx_live_cfg_t;
 
 const char *pdx_live_video_name(pdx_live_video_t v);

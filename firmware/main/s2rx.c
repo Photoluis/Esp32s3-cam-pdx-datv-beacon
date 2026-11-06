@@ -1139,6 +1139,18 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
             break;
         }
         rep->frames++;
+        if (E->cst && E->cst_max && (fr.ok || !rep->cst_n)) {        /* costellazione: ultimo frame con LDPC buono */
+            const uint32_t nc = g.ndata < E->cst_max ? g.ndata : E->cst_max;
+            float m = 0;
+            for (uint32_t d = 0; d < nc; d++) m += sqrtf(cabs2(W.s[d]));
+            m = m > 0 ? nc / m : 1;
+            for (uint32_t d = 0; d < nc; d++) {
+                const float re = W.s[d].re * m * 8192.0f, im = W.s[d].im * m * 8192.0f;
+                E->cst[2 * d] = (int16_t)(re > 32767 ? 32767 : re < -32767 ? -32767 : re);
+                E->cst[2 * d + 1] = (int16_t)(im > 32767 ? 32767 : im < -32767 ? -32767 : im);
+            }
+            rep->cst_n = nc;
+        }
         rep->ldpc_ok += fr.ok;
         rep->ldpc_iter_sum += fr.iter;
         mers[nm++] = fr.mer;
