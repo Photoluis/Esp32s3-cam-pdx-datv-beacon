@@ -198,14 +198,14 @@ void pdx_led_tx(double level_db)
     unlock();
 }
 
-/* nominativo acquisito dal Parrot (06/11): giallo al 50% che lampeggia a 4 Hz dal momento in cui il nominativo è
- * letto (a metà decodifica) fino alla TX della risposta (rosso) */
+/* nominativo acquisito dal Parrot (06/11): verde al 50% che lampeggia veloce (~8 Hz) dal momento in cui il nominativo
+ * è letto dalla SDT (a metà decodifica) fino alla TX della risposta (rosso). Il giallo resta solo per l'attesa. */
 void pdx_led_qso(void)
 {
     lock();
     set_base();
-    last_half_ms = 125;
-    last_rgb[0] = 128; last_rgb[1] = 100; last_rgb[2] = 0;
+    last_half_ms = 60;
+    last_rgb[0] = 0; last_rgb[1] = 128; last_rgb[2] = 0;
     last_kind = 1;
     show_blink();
     unlock();

@@ -364,7 +364,7 @@ const char *pdx_parrot_json(void)
 #define PARROT_DET_DB 10.0f   /* soglia del rilevatore (06/11: 8 dB dava falsi allarmi a 8,4 dB; segnali veri 20-27 dB) */
 static void parrot_on_call(const char *call)
 {
-    printf("PARROT nominativo %s acquisito: LED giallo lampeggiante fino alla risposta\n", call);
+    printf("PARROT nominativo %s acquisito: LED verde veloce fino alla risposta\n", call);
     fflush(stdout);
     pdx_led_qso();
 }
@@ -437,7 +437,7 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
         s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
         if (rep.call[0]) {
             parrot_store(&rep);
-            pdx_led_qso();                   /* giallo 4 Hz fino alla risposta (già acceso da on_call a metà decodifica) */
+            pdx_led_qso();                   /* verde veloce fino alla risposta (già acceso da on_call a metà decodifica) */
             return 1;
         }
         printf("PARROT nessun nominativo letto: si riprova finché c'è tempo\n");
@@ -472,7 +472,7 @@ static void parrot_pause_run(uint32_t s)
     pdx_web_stop();
     printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
     const int r = parrot_listen(s, cfg.parrot_stab);
-    if (r <= 0) pdx_led_idle();                              /* con un QSO il giallo lampeggiante resta fino al riavvio */
+    if (r <= 0) pdx_led_idle();                              /* con un QSO il verde veloce resta fino al riavvio */
     if (r < 0) {                                             /* fermato con BOOT o dalla seriale */
         while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
         discard_input();
