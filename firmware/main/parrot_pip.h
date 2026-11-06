@@ -17,6 +17,8 @@ bool pdx_pip_from_ts(const uint8_t *ts, const uint8_t *ok, uint32_t np, char *in
 void pdx_pip_from_const(const int16_t *iq, uint32_t n, const char *label);
 void pdx_pip_clear(void);
 bool pdx_pip_valid(void);
-const char *pdx_pip_label(void);           /* "RX H.264 640x360" o "RX H.265 QPSK"... */
+int pdx_pip_w(void);                       /* dimensioni del riquadro (0 se assente) */
+int pdx_pip_h(void);
+const char *pdx_pip_label(void);          /* "RX H.264 640x360" o "RX H.265 QPSK"... */
 /* copia il riquadro (con bordo bianco di 2 px) in un'immagine YUYV w x h, angolo in alto a sinistra dell'immagine x, y */
 void pdx_pip_paste(uint8_t *yuyv, int w, int h, int x, int y);

@@ -10,10 +10,12 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 
-#define FRAME_BYTES (PDX_CAM_W * PDX_CAM_H * 2)
-/* riquadro della camera nel PiP: metà risoluzione, in basso a destra sopra la fascia del contatore */
+#define FRAME_BYTES (PDX_CAM_W * PDX_CAM_H * 2)                      /* fotogramma codificato 320x180 */
+#define SRC_OFF ((size_t)PDX_SRC_Y0 * PDX_CAM_W * 2)                 /* prima riga usata delle sorgenti 320x240 */
+/* riquadro della camera nel PiP: metà risoluzione (160x90, parte centrale), a destra sopra la fascia del contatore */
 #define PIP_X 154
-#define PIP_Y 88
+#define PIP_Y 60
+#define PIP_H (PDX_CAM_H / 2)
 
 static bool cam_ok;
 static esp_h264_enc_handle_t enc;
@@ -77,12 +79,12 @@ const char *pdx_cam_live_init(int fps, int kbps, bool camera)
 /* camera ridotta a metà (media orizzontale, una riga su due) nel riquadro del PiP, con cornice bianca */
 static void pip_inset(uint8_t *dst, const uint8_t *cam)
 {
-    for (int y = PIP_Y - 2; y < PIP_Y + PDX_CAM_H / 2 + 2; y++) {
+    for (int y = PIP_Y - 2; y < PIP_Y + PIP_H + 2; y++) {
         uint8_t *p = dst + ((size_t)y * PDX_CAM_W + PIP_X - 2) * 2;
         for (int x = 0; x < PDX_CAM_W / 2 + 4; x += 2, p += 4) { p[0] = 235; p[1] = 128; p[2] = 235; p[3] = 128; }
     }
-    for (int oy = 0; oy < PDX_CAM_H / 2; oy++) {
-        const uint8_t *s = cam + (size_t)(2 * oy) * PDX_CAM_W * 2;
+    for (int oy = 0; oy < PIP_H; oy++) {
+        const uint8_t *s = cam + SRC_OFF + (size_t)(2 * oy) * PDX_CAM_W * 2;   /* righe 30..208 della camera, una su due */
         uint8_t *d = dst + ((size_t)(PIP_Y + oy) * PDX_CAM_W + PIP_X) * 2;
         for (int j = 0; j < PDX_CAM_W / 4; j++, s += 8, d += 4) {
             d[0] = (uint8_t)((s[0] + s[2] + 1) >> 1);
@@ -102,9 +104,9 @@ uint32_t pdx_cam_live_frame(pdx_live_src_t src, const uint8_t *bg, uint8_t *out,
     if (src != PDX_SRC_IMG && !(fb = esp_camera_fb_get())) return 0;
     uint8_t *img;
     if (src == PDX_SRC_CAM) {
-        img = fb->buf;
+        img = fb->buf + SRC_OFF;                            /* fascia centrale 16:9 della QVGA, senza copia */
     } else {
-        memcpy(work, bg, FRAME_BYTES);
+        memcpy(work, bg + SRC_OFF, FRAME_BYTES);
         if (src == PDX_SRC_PIP) pip_inset(work, fb->buf);
         img = work;
     }

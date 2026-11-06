@@ -109,14 +109,15 @@ static bool beacon_pause(const pdx_cfg_t *c, uint32_t s);
 RTC_NOINIT_ATTR static parrot_state_t parrot;
 static uint32_t parrot_crc(void) { return esp_rom_crc32_le(0, (const uint8_t *)&parrot, offsetof(parrot_state_t, crc)); }
 static bool parrot_valid(void) { return parrot.magic == PARROT_MAGIC && parrot.crc == parrot_crc(); }
-static char parrot_l1[24], parrot_l2[48], parrot_l3[40], parrot_prov[40];
+static char parrot_l1[24], parrot_l2[32], parrot_l3[32], parrot_l4[24], parrot_prov[40];
 static void parrot_texts(void)
 {
+    /* righe corte (16:9, 06/11): a destra della fascia c'è il riquadro del ricevuto */
     snprintf(parrot_l1, sizeof(parrot_l1), "QSO %s", parrot.call);
-    snprintf(parrot_l2, sizeof(parrot_l2), "MER %.1f dB  D%.1f  RF %.0f dBFS", (double)parrot.mer, (double)parrot.d,
-             (double)parrot.rf_dbfs);
-    snprintf(parrot_l3, sizeof(parrot_l3), "%ukS %s  %+.1f kHz", (unsigned)((parrot.sr + 500u) / 1000u), parrot.fec,
-             (double)parrot.foff_hz / 1000.0);
+    snprintf(parrot_l2, sizeof(parrot_l2), "MER %.1fdB  D%.1f", (double)parrot.mer, (double)parrot.d);
+    snprintf(parrot_l3, sizeof(parrot_l3), "RF %.0fdBFS %ukS %s", (double)parrot.rf_dbfs,
+             (unsigned)((parrot.sr + 500u) / 1000u), parrot.fec);
+    snprintf(parrot_l4, sizeof(parrot_l4), "%+.1f kHz", (double)parrot.foff_hz / 1000.0);
     snprintf(parrot_prov, sizeof(parrot_prov), "QRK %s %.1fdB D%.1f", parrot.call, (double)parrot.mer, (double)parrot.d);
 }
 
@@ -369,7 +370,8 @@ static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
     parrot.n = n;
     parrot.crc = parrot_crc();
     parrot_texts();
-    printf("PARROT QSO %u: %s | %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_l3, parrot_prov);
+    printf("PARROT QSO %u: %s | %s | %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_l3, parrot_l4,
+           parrot_prov);
     /* riquadro per la risposta: immagine H.264 ricevuta, altrimenti la costellazione */
     const int64_t t0 = esp_timer_get_time();
     char info[32];
@@ -378,7 +380,7 @@ static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
         printf("PARROT riquadro: immagine ricevuta %s (%u ms)\n", info, (unsigned)((esp_timer_get_time() - t0) / 1000));
     } else if (rep->cst_n) {
         char l[28];
-        snprintf(l, sizeof(l), "RX %s QPSK", !strcmp(info, "H.265") ? "H.265" : "");
+        snprintf(l, sizeof(l), "H.265 QPSK");   /* etichetta corta: sta sotto il riquadro da 84 px */
         pdx_pip_from_const(parrot_cst, rep->cst_n, !strcmp(info, "H.265") ? l : "RX QPSK");
         printf("PARROT riquadro: costellazione (%s, %u simboli)\n", info, (unsigned)rep->cst_n);
     } else {
@@ -906,24 +908,22 @@ static void handle_cmd(char *line)
             if (!bgp) bgp = heap_caps_malloc(PDX_IMG_BYTES, MALLOC_CAP_SPIRAM);
             if (bgp) {
                 memcpy(bgp, lc.bg, PDX_IMG_BYTES);
-                uint8_t *img = bgp + PDX_IMG_HDR;
-                pdx_pip_paste(img, PDX_IMG_W, PDX_IMG_H, PDX_IMG_W - PDX_PIP_W - 2, PDX_IMG_H - PDX_PIP_H - 1);
-                const char *lb = pdx_pip_label();
-                char l1[16] = "", l2[24] = "";
-                const char *sp = strchr(lb + 3, ' ');                /* "RX H.264 640x360" -> "RX H.264" / "640x360" */
-                if (sp) { snprintf(l1, sizeof(l1), "%.*s", (int)(sp - lb), lb); snprintf(l2, sizeof(l2), "%s", sp + 1); }
-                else snprintf(l1, sizeof(l1), "%s", lb);
-                pdx_ovl_text(img, PDX_IMG_W, PDX_IMG_H, 6, 156, l1, 1);
-                if (l2[0]) pdx_ovl_text(img, PDX_IMG_W, PDX_IMG_H, 6, 174, l2, 1);
+                /* coordinate nel fotogramma 16:9 320x180, che è la fascia centrale (righe 30..209) dello sfondo */
+                uint8_t *img = bgp + PDX_IMG_HDR + (size_t)PDX_SRC_Y0 * PDX_IMG_W * 2;
+                const int pw = pdx_pip_w(), px = (PDX_CAM_W - pw - 8) & ~1, py = 60;
+                pdx_pip_paste(img, PDX_CAM_W, PDX_CAM_H, px, py);
+                /* etichetta sotto il riquadro, dentro l'immagine (bordo a 8 px dai lati) */
+                pdx_ovl_text(img, PDX_CAM_W, PDX_CAM_H, px, py + pdx_pip_h() + 4, pdx_pip_label(), 1);
                 lc.bg = bgp;
-                lc.qrk_pip = true;
-                printf("PARROT riquadro nella risposta: %s\n", lb);
+                lc.pip_x = (int16_t)px;
+                printf("PARROT riquadro nella risposta: %s %dx%d a x=%d\n", pdx_pip_label(), pw, pdx_pip_h(), px);
             }
         }
         lc.ovl_full = true;
         lc.qrk1 = parrot_l1;
         lc.qrk2 = parrot_l2;
         lc.qrk3 = parrot_l3;
+        lc.qrk4 = parrot_l4;
         lc.provider = parrot_prov;
         /* si risponde con il symbol rate della stazione ricevuta (il suo ricevitore è già lì), al massimo 500 kS */
         { static const uint32_t SRS[] = {125000, 250000, 333000, 500000}; uint32_t b = SRS[0];
