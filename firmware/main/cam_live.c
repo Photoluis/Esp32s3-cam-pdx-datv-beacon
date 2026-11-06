@@ -18,9 +18,23 @@
 static bool cam_ok;
 static esp_h264_enc_handle_t enc;
 static uint8_t *work;                     /* immagine composta (PiP, immagine fissa) */
+static bool flip_h, flip_v;
+
+void pdx_cam_set_flip(bool h, bool v) { flip_h = h; flip_v = v; }
+
+/* orientamento: la OV3660 di questa scheda dà l'immagine specchiata, quindi "dritta" = hmirror 1; l'utente può
+ * ribaltare in orizzontale e in verticale (camera montata capovolta sul traliccio) */
+static void apply_flip(void)
+{
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s) return;
+    if (s->set_hmirror) s->set_hmirror(s, flip_h ? 0 : 1);
+    if (s->set_vflip) s->set_vflip(s, flip_v ? 1 : 0);
+}
 
 const char *pdx_cam_live_init(int fps, int kbps, bool camera)
 {
+    if (camera && cam_ok) apply_flip();
     if (camera && !cam_ok) {
         camera_config_t c = {
             .pin_pwdn = -1, .pin_reset = -1, .pin_xclk = 15, .pin_sccb_sda = 4, .pin_sccb_scl = 5,
@@ -31,8 +45,7 @@ const char *pdx_cam_live_init(int fps, int kbps, bool camera)
             .fb_location = CAMERA_FB_IN_PSRAM, .grab_mode = CAMERA_GRAB_LATEST,
         };
         if (esp_camera_init(&c) != ESP_OK) return "camera";
-        sensor_t *s = esp_camera_sensor_get();
-        if (s && s->set_hmirror) s->set_hmirror(s, 1);    /* la OV3660 di questa scheda dà l'immagine specchiata */
+        apply_flip();
         /* i primi fotogrammi dopo l'accensione arrivano lenti: scartati qui, prima che parta la TX (con la TX già in
          * corso svuotavano il buffer dei simboli, 30/10: 4395 volte nel primo segmento PiP) */
         for (int i = 0; i < 4; i++) {

@@ -69,7 +69,7 @@
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
-#define FW_VERSION "v1.1.0"
+#define FW_VERSION "v1.2.0-dev Parrot"
 #define TX_MAX_S   300u
 
 #define BOOT_GPIO 0                 /* pulsante BOOT della scheda: premuto = livello basso */
@@ -258,6 +258,7 @@ static void tx_end_note(uint32_t ms, bool stats)
 /* parametri del TS dal vivo dalla configurazione (sfondo PiP e sovrimpressione come nel beacon) */
 static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_khz, int amp, const char *fec)
 {
+    pdx_cam_set_flip(cfg.cam_flip & PDX_CAMFLIP_H, cfg.cam_flip & PDX_CAMFLIP_V);
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
     *lc = (pdx_live_cfg_t){.sr = pdx_cfg_sr(&cfg), .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
@@ -316,6 +317,7 @@ static void handle_cmd(char *line);
 static void handle(char *line)
 {
     pdx_rx_led_used = false;
+    pdx_led_activity();                                       /* verde veloce: comando dalla seriale */
     handle_cmd(line);
     if (pdx_rx_led_used) { pdx_rx_led_used = false; pdx_led_idle(); }
 }
@@ -855,6 +857,7 @@ static void handle_cmd(char *line)
         const bool saved = pdx_cfg_save(&cfg);
         pdx_cfg_unlock();
         printf(saved ? "OK configurazione salvata\n" : "ERR salvataggio\n");
+        if (saved) pdx_led_confirm();                         /* giallo lento: conferma */
 
     } else if (!strcasecmp(argv[0], "DEFAULTS")) {
         pdx_cfg_defaults(&cfg);

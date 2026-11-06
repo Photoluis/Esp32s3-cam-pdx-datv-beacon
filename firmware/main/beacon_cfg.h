@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "rf_s3.h"
 
-#define PDX_CFG_VERSION 5
+#define PDX_CFG_VERSION 6
 
 typedef struct {
     uint16_t version;
@@ -34,7 +34,13 @@ typedef struct {
     uint8_t sr_sel;         /* PDX_SR_*: symbol rate (era riservato: 0 = 333 kS anche nelle configurazioni salvate prima) */
     /* dalla versione 5 */
     char locator[8];        /* QTH locator Maidenhead (4 o 6 caratteri, "" = non mostrato) */
+    /* dalla versione 6 (v1.2.0) */
+    uint8_t cam_flip;       /* bit 0: camera ribaltata in orizzontale, bit 1: in verticale */
+    uint8_t reserved6[3];
 } pdx_cfg_t;
+
+#define PDX_CAMFLIP_H 1u
+#define PDX_CAMFLIP_V 2u
 
 enum { PDX_MONO_STD, PDX_MONO_USR_VIDEO, PDX_MONO_USR_IMAGE, PDX_MONO_LIVE };
 enum { PDX_XVTR_SUM, PDX_XVTR_DIFF };

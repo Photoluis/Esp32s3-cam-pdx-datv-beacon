@@ -4,6 +4,7 @@
  *   RX        verde fisso al 50%
  *   attesa    giallo fisso al 30% (configurazione, pause del ciclo, decodifica)
  *   TX        rosso al 50% lampeggiante, da 1 Hz a PDX_LED_DB_MIN fino a 5 Hz a PDX_LED_DB_MAX
+ *   conferma  giallo lampeggiante lento (Applica / Salva), attività: verde lampeggiante veloce (seriale, web)
  * Modi: normale, minimo (stessi colori alla luminosità più bassa visibile), spento.
  * Il lampeggio è un ciclo hardware dell'RMT: continua da solo mentre il core 0 ha gli interrupt disattivati. */
 #pragma once
@@ -21,3 +22,8 @@ void pdx_led_idle(void);                            /* giallo fisso */
 void pdx_led_rx(void);                              /* verde fisso */
 void pdx_led_tx(double level_db);                   /* rosso lampeggiante */
 void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b);  /* colore fisso qualsiasi */
+/* avvisi brevi, solo in attesa (mai durante TX o RX), poi si torna allo stato di base:
+ * conferma = giallo lampeggiante lento per 3 s (parametri applicati / salvati)
+ * attività = verde lampeggiante veloce per 0,4 s (comando dalla seriale o richiesta web) */
+void pdx_led_confirm(void);
+void pdx_led_activity(void);

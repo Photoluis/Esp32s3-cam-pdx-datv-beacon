@@ -15,6 +15,7 @@
 #include "media_store.h"
 #include "led_status.h"
 #include "chip_temp.h"
+#include "cam_live.h"
 
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
@@ -107,7 +108,8 @@ bool pdx_cfg_load(pdx_cfg_t *c)
      * nuovi prendono i valori predefiniti */
     const size_t old_len = tmp.version == 2 ? offsetof(pdx_cfg_t, mono_src)
                          : tmp.version == 3 ? offsetof(pdx_cfg_t, lo_khz)
-                         : tmp.version == 4 ? offsetof(pdx_cfg_t, locator) : 0;
+                         : tmp.version == 4 ? offsetof(pdx_cfg_t, locator)
+                         : tmp.version == 5 ? offsetof(pdx_cfg_t, cam_flip) : 0;
     if (old_len && len == ((old_len + 3u) & ~(size_t)3u)) {
         pdx_cfg_t d;
         pdx_cfg_defaults(&d);
@@ -150,12 +152,13 @@ void pdx_cfg_print(const pdx_cfg_t *c)
                (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("CFG SR %u kS | ", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
-           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s\n",
+           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s | camera%s%s\n",
            c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
            c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s,
            c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign,
-           c->locator[0] ? c->locator : "-");
+           c->locator[0] ? c->locator : "-", c->cam_flip & PDX_CAMFLIP_H ? " ribaltata H" : "",
+           c->cam_flip & PDX_CAMFLIP_V ? " ribaltata V" : (c->cam_flip ? "" : " dritta"));
 }
 
 /* QTH locator Maidenhead: AA00 o AA00AA (campo A-R, quadrato 0-9, sottoquadrato A-X); salvato in maiuscolo */
@@ -277,12 +280,17 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         else if (!strcasecmp(value, "off")) c->led = PDX_LED_OFF;
         else return "led NORMAL/MIN/OFF";
         pdx_led_set_mode(c->led);
+    } else if (!strcasecmp(key, "camh") || !strcasecmp(key, "camv")) {   /* camera ribaltata in orizzontale / verticale */
+        const uint8_t bit = !strcasecmp(key, "camh") ? PDX_CAMFLIP_H : PDX_CAMFLIP_V;
+        if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->cam_flip |= bit;
+        else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->cam_flip &= (uint8_t)~bit;
+        else return "camh / camv ON/OFF";
     } else if (!strcasecmp(key, "xvtr")) {
         if (!strcasecmp(value, "sum")) c->xvtr = PDX_XVTR_SUM;
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem";
+        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem camh camv";
     }
     return NULL;
 }
@@ -308,6 +316,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
                          .locator = c->locator,
                          .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
     pdx_rf_set_invert(inv);
+    pdx_cam_set_flip(c->cam_flip & PDX_CAMFLIP_H, c->cam_flip & PDX_CAMFLIP_V);
     lc.telem = pdx_cfg_telemetry(c, cycle);              /* letta qui, prima della TX */
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
     if (mono) {

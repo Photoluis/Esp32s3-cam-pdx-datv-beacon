@@ -7,6 +7,7 @@
 #include <string.h>
 #include "esp_http_server.h"
 #include "esp_timer.h"
+#include "esp_event.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -60,12 +61,13 @@ static int cfg_json(char *b, size_t n)
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u,\"camh\":%d,\"camv\":%d}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
                     cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv,
-                    cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem, cfg->locator, (unsigned)(pdx_cfg_sr(cfg) / 1000u));
+                    cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem, cfg->locator, (unsigned)(pdx_cfg_sr(cfg) / 1000u),
+                    (cfg->cam_flip & PDX_CAMFLIP_H) ? 1 : 0, (cfg->cam_flip & PDX_CAMFLIP_V) ? 1 : 0);
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -78,6 +80,7 @@ static esp_err_t send_json(httpd_req_t *r, const char *s)
 static esp_err_t h_index(httpd_req_t *r)
 {
     client_seen = true;
+    pdx_led_activity();
     httpd_resp_set_type(r, "text/html; charset=utf-8");
     return httpd_resp_send(r, index_html_start, index_html_end - index_html_start);
 }
@@ -85,6 +88,7 @@ static esp_err_t h_index(httpd_req_t *r)
 static esp_err_t h_status(httpd_req_t *r)
 {
     client_seen = true;
+    pdx_led_activity();
     char c[480], b[1160], md[4][96];
     pdx_cfg_lock();
     cfg_json(c, sizeof(c));
@@ -148,6 +152,7 @@ static esp_err_t h_set(httpd_req_t *r)
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
     snprintf(out, sizeof(out), "{\"ok\":%s,\"errors\":[%s],\"cfg\":%s}", errs[0] ? "false" : "true", errs, c);
+    if (errs[0]) pdx_led_activity(); else pdx_led_confirm();      /* giallo lento: parametri applicati */
     return send_json(r, out);
 }
 
@@ -156,6 +161,7 @@ static esp_err_t h_save(httpd_req_t *r)
     pdx_cfg_lock();
     const bool ok = pdx_cfg_save(cfg);
     pdx_cfg_unlock();
+    if (ok) pdx_led_confirm(); else pdx_led_activity();
     return send_json(r, ok ? "{\"ok\":true,\"msg\":\"configurazione salvata\"}" : "{\"ok\":false,\"msg\":\"errore NVS\"}");
 }
 
@@ -197,6 +203,7 @@ static esp_err_t media_reply(httpd_req_t *r, pdx_media_t m, const char *err)
 static esp_err_t h_upload(httpd_req_t *r)
 {
     client_seen = true;
+    pdx_led_activity();
     pdx_media_t m;
     if (!query_kind(r, &m)) return send_json(r, "{\"ok\":false,\"msg\":\"kind=video|image\"}");
     const char *e = pdx_media_write_begin(m, (uint32_t)r->content_len);
@@ -226,11 +233,20 @@ static esp_err_t h_erase(httpd_req_t *r)
 
 static esp_err_t h_start(httpd_req_t *r)
 {
+    pdx_led_activity();
     start_request = true;
     return send_json(r, "{\"ok\":true,\"msg\":\"beacon in partenza: il Wi-Fi si spegne. Per fermarlo premere BOOT.\"}");
 }
 
 /* ------------------------------------------------------------ access point e server */
+
+/* un telefono che si collega all'access point conta come pagina aperta: annulla la partenza automatica e la ripresa
+ * del ciclo (06/11: l'iPhone si collegava ma il beacon ripartiva prima che la pagina si aprisse) */
+static void on_sta(void *arg, esp_event_base_t base, int32_t id, void *data)
+{
+    (void)arg; (void)base; (void)data;
+    if (id == WIFI_EVENT_AP_STACONNECTED) { client_seen = true; pdx_led_activity(); printf("WEB telefono collegato all'access point\n"); }
+}
 
 bool pdx_web_start(void)
 {
@@ -246,6 +262,8 @@ bool pdx_web_start(void)
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ap.ap.pmf_cfg.required = false;
     radio_dirty = true;
+    static bool ev;
+    if (!ev) ev = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED, on_sta, NULL) == ESP_OK;
     esp_wifi_set_promiscuous(false);
     esp_wifi_stop();
     if (esp_wifi_set_mode(WIFI_MODE_AP) != ESP_OK || esp_wifi_set_config(WIFI_IF_AP, &ap) != ESP_OK ||

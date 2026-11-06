@@ -12,6 +12,8 @@ typedef enum { PDX_SRC_CAM, PDX_SRC_PIP, PDX_SRC_IMG } pdx_live_src_t;
 
 typedef void (*pdx_cam_overlay_fn)(uint8_t *yuyv, int w, int h, void *ctx);
 
+/* ribaltamento orizzontale / verticale dell'immagine della camera: vale dalla prossima pdx_cam_live_init */
+void pdx_cam_set_flip(bool h, bool v);
 /* encoder (e camera se serve; la camera si inizializza una sola volta). Da chiamare dal core 1. */
 const char *pdx_cam_live_init(int fps, int kbps, bool camera);
 /* compone un fotogramma (bg = immagine 320x240 YUYV per PiP e IMG), applica la sovrimpressione e lo codifica in out;

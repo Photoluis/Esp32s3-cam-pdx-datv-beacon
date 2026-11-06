@@ -9,6 +9,9 @@
 
 #include "driver/rmt_encoder.h"
 #include "driver/rmt_tx.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define RES_HZ   2500000u            /* 0,4 us per tick: WS2812 bit 0 = 1+2 tick, bit 1 = 2+1 tick (valori nominali) */
 #define MEM_SYM  96u                 /* due blocchi da 48 simboli: tutta la sequenza del lampeggio */
@@ -21,6 +24,9 @@ static rmt_symbol_word_t pat[MEM_SYM];
 static int last_kind;                /* 0 fisso, 1 lampeggio */
 static uint8_t last_rgb[3];
 static uint32_t last_half_ms;
+static SemaphoreHandle_t mtx;
+static esp_timer_handle_t tmr;
+static void ovl_end(void *arg);
 
 void pdx_led_init(void)
 {
@@ -35,6 +41,9 @@ void pdx_led_init(void)
         chan = NULL;
         return;
     }
+    mtx = xSemaphoreCreateMutex();
+    const esp_timer_create_args_t ta = {.callback = ovl_end, .name = "led"};
+    if (esp_timer_create(&ta, &tmr) != ESP_OK) tmr = NULL;
     pdx_led_idle();
 }
 
@@ -108,11 +117,67 @@ static void show_blink(void)
     send(n, true);
 }
 
+/* ---- avvisi brevi sopra lo stato di attesa (06/11): giallo lento = parametri applicati / salvati,
+ * verde veloce = attività sulla seriale o sul web. Poi si torna allo stato di base. Mai durante TX o RX. */
+static int ovl_kind;                 /* 0 nessuno, 1 conferma, 2 attività */
+static void lock(void) { if (mtx) xSemaphoreTake(mtx, portMAX_DELAY); }
+static void unlock(void) { if (mtx) xSemaphoreGive(mtx); }
+
+static void show_base(void) { if (last_kind) show_blink(); else show_fixed(); }
+
+static void show_pattern(uint8_t r, uint8_t g, uint8_t b, uint32_t half_ms)
+{
+    apply_mode(&r, &g, &b);
+    const uint32_t half = half_ms * (RES_HZ / 1000u);
+    unsigned n = put_low(0, 750);
+    n = put_rgb(n, r, g, b);
+    n = put_low(n, half);
+    n = put_rgb(n, 0, 0, 0);
+    n = put_low(n, half);
+    send(n, true);
+}
+
+static void ovl_end(void *arg)
+{
+    (void)arg;
+    lock();
+    if (ovl_kind) { ovl_kind = 0; show_base(); }
+    unlock();
+}
+
+static void notify(int kind, uint32_t dur_ms)
+{
+    if (!chan || !mtx) return;
+    lock();
+    if (last_kind == 0 && last_rgb[1] != 128 && !(kind == 2 && ovl_kind == 1)) {   /* solo in attesa; la conferma vince */
+        if (ovl_kind != kind) {
+            if (kind == 1) show_pattern(128, 100, 0, 500);                /* giallo, 1 Hz */
+            else show_pattern(0, 128, 0, 60);                            /* verde, ~8 Hz */
+            ovl_kind = kind;
+        }
+        esp_timer_stop(tmr);
+        esp_timer_start_once(tmr, (uint64_t)dur_ms * 1000u);
+    }
+    unlock();
+}
+
+void pdx_led_confirm(void) { notify(1, 3000); }
+void pdx_led_activity(void) { notify(2, 400); }
+
+static void set_base(void)                                /* stato nuovo: annulla l'avviso in corso */
+{
+    if (tmr) esp_timer_stop(tmr);
+    ovl_kind = 0;
+}
+
 void pdx_led_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
+    lock();
+    set_base();
     last_rgb[0] = r; last_rgb[1] = g; last_rgb[2] = b;
     last_kind = 0;
     show_fixed();
+    unlock();
 }
 
 void pdx_led_idle(void) { pdx_led_rgb(77, 60, 0); }                  /* attesa: giallo fisso al 30% (utente, 04/11) */
@@ -124,14 +189,20 @@ void pdx_led_tx(double level_db)
     double t = (level_db - PDX_LED_DB_MIN) / (PDX_LED_DB_MAX - PDX_LED_DB_MIN);
     t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
     const double hz = 1.0 + 4.0 * t;
+    lock();
+    set_base();
     last_half_ms = (uint32_t)(500.0 / hz + 0.5);
     last_rgb[0] = 128; last_rgb[1] = 0; last_rgb[2] = 0;
     last_kind = 1;
     show_blink();
+    unlock();
 }
 
 void pdx_led_set_mode(int mode)
 {
+    lock();
     led_mode = mode;
-    if (last_kind) show_blink(); else show_fixed();
+    set_base();
+    show_base();
+    unlock();
 }
