@@ -16,11 +16,17 @@ on the ESP32-S3 itself. No SDR, PC or Raspberry Pi needed.
   1000 kS, v1.1.0). DVB-S2 encoder written from ETSI EN 302 307-1 and verified bit for bit (42/42 test cases).
 - **2300–2450 MHz** directly; **IF output for an external mixer** (transverter): set the local oscillator and the final
   frequency is shown in the overlay and in the DVB service name; inverted spectrum is compensated.
-- **Live camera** (H.264 320x240), camera **picture-in-picture** on the test card, standard H.265 test card, test card
-  with **live data**, **custom test cards** (a photo from your phone or a video prepared on the PC) — Halloween one
-  included.
-- **Stand-alone beacon**: test card / camera / pause cycle, automatic start at power-on, output level in dB, RGB status
-  LED whose colour "warms up" with the output level (normal, minimum or off for battery/solar operation).
+- **Parrot mode** (new in v1.2.0): during the cycle pauses the beacon **listens on its own frequency**, decodes a
+  DVB-S2 station (QPSK up to 500 kS) on the chip, reads its callsign and **answers on the air** with QSO, MER, margin,
+  RF level, SR, FEC, offset and the received constellation (or picture) — see the
+  [Parrot guide](docs/PARROT_GUIDE.md).
+- **Live camera** (H.264 320x180, 16:9; flip horizontal / vertical), camera **picture-in-picture** on the test card,
+  standard H.265 test card, test card with **live data**, **custom test cards** (a photo from your phone or a video
+  prepared on the PC) — Halloween one included.
+- **Stand-alone beacon**: test card / camera / pause cycle with a **cycle diagram** on the web page, automatic start at
+  power-on, output level in dB, **traffic-light status LED** (green = receiving, yellow = standby, red blinking = TX,
+  faster at higher level; normal, minimum or off for battery/solar operation), **STOP button on GPIO0** (BOOT or an
+  external push button to GND).
 - **Telemetry overlay** (optional): chip temperature, uptime and cycle number; temperature also on the web page and in
   the serial log at the end of every segment. **QTH locator** in the overlay and in the DVB service provider name.
 - **Web set-up from your phone** in 11 languages (IT, EN, DE, ES, FR, PT, NL, PL, EL, JA, AR) while not transmitting;
@@ -39,6 +45,8 @@ The firmware is built with ESP-IDF, not Arduino: no Arduino IDE is needed to ins
 ## Documentation
 
 - [Installation guide](docs/INSTALL.md)
+- [Parrot mode guide](docs/PARROT_GUIDE.md): cycle diagram, LED, the reply, STOP button on GPIO0
+  ([italiano](docs/PARROT_GUIDE_it.md))
 - [The project](docs/PROGETTO.md) (Italian; [complete PDF](docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf), also offline)
 - [Presentation in 11 languages](docs/presentazione/) with an invitation to collaborate (Markdown + PDF)
 - [Custom test cards](docs/MONOSCOPIO.md) (Italian)
@@ -77,7 +85,7 @@ python make_bg.py -o out/bg_std.bin
 python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin 0xC10000 out/bg_std.bin
 ```
 Main serial commands (115200 baud): `INFO`, `CONFIG`, `SET <key> <value>`, `SAVE`, `BEACON`, `ESPLAY`, `MEDIA`,
-`LEDTEST`; the full list is at the top of `firmware/main/main.c`. Web page: Wi-Fi network `<CALLSIGN>-BEACON`,
+`LEDTEST`, `PARROT`; the full list is at the top of `firmware/main/main.c`. Web page: Wi-Fi network `<CALLSIGN>-BEACON`,
 http://192.168.4.1.
 
 ## Contributing
@@ -94,7 +102,9 @@ output (and after the mixer when using a transverter).
 ## Credits
 
 - DVB-S2: ETSI EN 302 307-1 V1.4.1. LDPC tables extracted from the standard and verified (`tools/dvbs2/etsi_tables.py`).
-- Espressif components: ESP-IDF, esp32-camera, esp_h264 (Apache 2.0; esp_h264 contains OpenH264, BSD).
+- Espressif components: ESP-IDF, esp32-camera, esp_h264 (Apache 2.0; esp_h264 contains OpenH264, BSD, and tinyh264).
+- Parrot receive path: the ESP32-S3 radio "dump" capture engine as documented by eSpDR / esp32-sdr-trx (0BSD); the
+  DVB-S2 receiver (detection, timing, PL header, LDPC, TS, SDT) is our own code.
 
 ## Licence
 

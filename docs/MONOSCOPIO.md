@@ -1,12 +1,12 @@
 # Monoscopio personalizzato
 
 Il beacon ha un **monoscopio standard** (barre colorate, QRZ, frequenza, H.265 640x360) e uno **sfondo standard del PiP**
-(barre 320x240). Il firmware non permette di sovrascriverli né di cancellarli: si possono solo **affiancare** con un
+(barre 320x240, di cui dalla v1.2.0 si trasmette la fascia centrale 16:9). Il firmware non permette di sovrascriverli né di cancellarli: si possono solo **affiancare** con un
 monoscopio personalizzato, che si sceglie dal menu.
 
 | Tipo | Come si prepara | Come si carica | Come va in aria |
 |---|---|---|---|
-| **Immagine fissa** | nessuna preparazione: qualsiasi foto o disegno | pagina web (telefono o PC) oppure seriale | H.264 320x240 generato dall'ESP, con la sovrimpressione |
+| **Immagine fissa** | nessuna preparazione: qualsiasi foto o disegno | pagina web (telefono o PC) oppure seriale | H.264 320x180 (16:9) generato dall'ESP, con la sovrimpressione |
 | **Video** (o immagine in H.265) | `tools/make_es.py` sul PC | pagina web dal PC oppure seriale | H.265 640x360 come preparato, con il tono |
 
 L'immagine personalizzata serve anche come **sfondo del PiP** al posto delle barre (menu: *Sfondo del PiP*).
@@ -31,12 +31,12 @@ python make_es.py --video out/halloween.mp4 --audio out/halloween.wav --audio-kb
 
 1. Collegarsi alla rete Wi-Fi **`<QRZ>-BEACON`** (password predefinita `beacon13cm`, si cambia dal menu) e aprire
    **http://192.168.4.1**. La rete è attiva solo a TX ferma.
-2. Sezione *Monoscopi* → *Immagine personalizzata* → scegliere la foto. La pagina la ritaglia al centro in 4:3, la riduce a
-   320x240 e mostra l'anteprima.
+2. Sezione *Monoscopi* → *Immagine personalizzata* → scegliere la foto. La pagina la ritaglia al centro in 16:9, la riduce a
+   320x180 e mostra l'anteprima.
 3. **Carica immagine**. In *Ciclo del beacon* scegliere *Monoscopio da trasmettere = immagine personalizzata* e/o
    *Sfondo del PiP = immagine personalizzata*, poi **Applica e salva**.
 
-Consigli: soggetto al centro, testo grande (320x240 è una risoluzione bassa), pochi dettagli fini. Con la
+Consigli: soggetto al centro, testo grande (320x180 è una risoluzione bassa), pochi dettagli fini. Con la
 sovrimpressione attiva QRZ e frequenza occupano l'angolo in alto a sinistra e il contatore la fascia in basso.
 
 ## Video dal PC
@@ -66,7 +66,7 @@ Poi nel menu *Monoscopio da trasmettere = video personalizzato*.
 ## Dalla seriale
 
 ```
-python upload_media.py COM3 IMAGE foto.jpg          immagine qualsiasi (convertita sul PC a 320x240)
+python upload_media.py COM3 IMAGE foto.jpg          immagine qualsiasi (convertita sul PC a 16:9, 320x180)
 python upload_media.py COM3 VIDEO out/mio_es.bin    video preparato con make_es.py
 python upload_media.py COM3 ERASE IMAGE             cancella l'immagine personalizzata (ERASE VIDEO per il video)
 ```

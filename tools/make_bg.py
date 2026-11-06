@@ -26,7 +26,8 @@ W, H = 320, 240
 def build(image: str | None, label: str) -> bytes:
     if image:
         vin = ["-i", image]
-        vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
+        # dalla v1.2.0 si trasmette la fascia centrale 16:9 (320x180, righe 30..209): l'immagine va lì, nero sopra e sotto
+        vf = f"scale={W}:180:force_original_aspect_ratio=increase,crop={W}:180,pad={W}:{H}:0:30:black,setsar=1"
     else:
         vin = ["-f", "lavfi", "-i", f"smptebars=size={W}x{H}:rate=1"]
         vf = "null"

@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.2.0 — 06/11/2026
+
+- **Modo Parrot:** nelle pause del ciclo il beacon ascolta sulla propria frequenza (±200 kHz), riceve un DVB-S2 QPSK
+  fino a 500 kS, lo decodifica sul chip (ricevitore DVB-S2 in C: rilevamento, sincronismo, PL header, LDPC, TS, SDT),
+  legge il nominativo e risponde in aria con il rapporto (QSO, MER, margine D, RF in dBFS, SR, FEC, scarto) e un
+  riquadro con la costellazione ricevuta (o l'immagine, se H.264 Baseline). La risposta usa l'SR della stazione
+  ricevuta. Comandato dalla pagina web (sezione Parrot) e da seriale (`SET parrot/preply/pstab`, `PARROT...`). Provato
+  in aria con un Portsdown 4: 333 kS MER 18,6–20,1 dB, 500 kS MER 13,5 dB. Guida: `docs/PARROT_GUIDE.md` / `_it.md`.
+- **Schema del ciclo** nella pagina web (11 lingue): TX / ascolto / pausa in scala, passi di un QSO, percentuali e
+  istruzioni per il corrispondente; si aggiorna mentre si modificano i campi.
+- **LED a semaforo:** verde = ricezione, giallo = standby, rosso lampeggiante = TX (più veloce a livello più alto);
+  verde veloce = nominativo acquisito dal Parrot; giallo lento = impostazioni applicate/salvate; breve verde veloce =
+  comando dalla seriale o dal web.
+- **Modi dal vivo in 16:9** (camera, PiP, immagine, risposta del Parrot: H.264 320x180, fascia centrale delle sorgenti
+  320x240); l'immagine caricata dal web viene adattata a 16:9. Fondi dei testi in sovrimpressione trasparenti al 50%.
+- **Camera ribaltabile** in orizzontale e in verticale (pagina web, `SET camh/camv`).
+- **Dopo ogni TX o stop la scheda si riavvia in configurazione** (radio pulita): prima l'access point dopo uno stop
+  poteva non accettare la password. Pulsante di STOP: BOOT = GPIO0 (anche un pulsante esterno verso GND).
+- Titolo della pagina "ESP32-S3_CAM_PDX_DATV_BEACON" con il nominativo del beacon sotto; il telefono collegato
+  all'access point annulla la partenza automatica.
+- Configurazione v6: le impostazioni della v1.1.0 vengono convertite da sole (Parrot spento).
+
 ## v1.1.0 — 01/11/2026
 
 - **Symbol rate selezionabile:** 125, 250, 333, 500, 1000 kS (`SET sr`, menu nella pagina web, `ESPLAY ... 500k`).

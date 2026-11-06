@@ -9,7 +9,7 @@ sono calcolati sull'ESP stesso.
 
 ![Ricezione con Portsdown 4 e Minitiouner, MER 26 dB](docs/img/test_mer_20261030/05_m9.6dB_MER26.0.jpg)
 
-## Stato (01/11/2026, v1.1.0)
+## Stato (06/11/2026, v1.2.0)
 
 | Funzione | Stato |
 |---|---|
@@ -17,13 +17,15 @@ sono calcolati sull'ESP stesso.
 | Codificatore DVB-S2 (QPSK, frame normali e corti, tutti i rate, pilot) sull'ESP | collaudato: identico bit per bit al codificatore Python in 42/42 casi |
 | Multiplexer TS sull'ESP (PAT/PMT/SDT, PCR, PTS sempre crescenti, CBR) | collaudato: MER 25–26 dB, nessuna interruzione |
 | Monoscopio H.265 640x360 + tono AAC, loop di 19,2 s senza stacchi | collaudato |
-| Camera dal vivo (H.264 320x240), PiP, monoscopi personalizzati, monoscopio con dati in tempo reale | collaudato: MER 24–25 dB |
+| Camera dal vivo (H.264, dalla v1.2.0 320x180 16:9, ribaltabile), PiP, monoscopi personalizzati, monoscopio con dati in tempo reale | collaudato: MER 24–25 dB |
 | Beacon autonomo, configurazione da web (11 lingue) e da seriale, livello in dB, FEC dal menu | collaudato |
 | Uscita come IF verso un mixer esterno, frequenza finale in video e nella SDT | collaudato con OL fittizio; compensazione dello spettro invertito da provare con un mixer vero |
-| LED RGB di stato (colore proporzionale alla potenza; normale, minimo, spento) | collaudato |
+| LED di stato a semaforo (verde ricezione, giallo standby, rosso lampeggiante in TX più veloce a livello più alto; normale, minimo, spento) (v1.2.0) | collaudato |
 | Telemetria in sovrimpressione (temperatura del chip, accensione, ciclo) | collaudato |
 | Symbol rate 125 / 250 / 333 / 500 / 1000 kS (v1.1.0) | collaudato: 500 kS monoscopio e PiP MER 25; 1000 kS monoscopio MER 25 (camera/PiP a 1000 kS → monoscopio) |
 | QTH locator in sovrimpressione e nel fornitore SDT, livello a cursore −40…−5 dB (v1.1.0) | collaudato |
+| **Modo Parrot** (v1.2.0): ascolto nelle pause, decodifica DVB-S2 sul chip, risposta in aria con QSO, MER, margine, RF, SR, FEC, scarto e costellazione — [guida](docs/PARROT_GUIDE_it.md) | collaudato in aria con Portsdown 4: 333 kS MER 18,6–20,1 dB, 500 kS MER 13,5 dB |
+| Schema del ciclo nella pagina web, pulsante di STOP su GPIO0 (v1.2.0) | collaudato |
 
 ## Installazione
 
@@ -37,6 +39,7 @@ Il firmware è scritto con ESP-IDF, non con Arduino: per installarlo non serve l
 ## Documentazione
 
 - [Guida all'installazione](docs/INSTALL_it.md)
+- [Guida del modo Parrot](docs/PARROT_GUIDE_it.md): schema del ciclo, LED, la risposta, pulsante di STOP su GPIO0
 - [Il progetto](docs/PROGETTO.md): perché l'ESP32-S3, come funziona, tappe dello sviluppo, risultati
   ([PDF completo](docs/ESP32-S3-CAM_PDX_DATV_Beacon.pdf), anche offline)
 - [Presentazione in 11 lingue](docs/presentazione/) con l'invito a collaborare (Markdown + PDF)
@@ -67,6 +70,7 @@ camera parallela); firmware e periferiche sono diversi, quindi il C3 non è un s
 firmware/        firmware ESP-IDF 6.1 (main/: modulatore, DVB-S2, multiplexer, camera, beacon, web)
 tools/           strumenti PC (Python + ffmpeg): monoscopi, caricamento, controllo seriale, PDF
 tools/dvbs2/     codificatore DVB-S2 in Python, estrazione e verifica delle tabelle LDPC dalla norma ETSI
+tools/parrot/    ricevitore DVB-S2 di prova in Python, catture sintetiche, cattura dalla scheda (sviluppo del Parrot)
 docs/            documentazione, prove, immagini, presentazioni, monoscopio di Halloween
 ```
 
@@ -86,7 +90,7 @@ python make_bg.py -o out/bg_std.bin
 python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin 0xC10000 out/bg_std.bin
 ```
 Comandi principali sulla seriale (115200): `INFO`, `CONFIG`, `SET <chiave> <valore>`, `SAVE`, `BEACON`, `ESPLAY`,
-`MEDIA`, `LEDTEST`; elenco completo all'inizio di `firmware/main/main.c`. Pagina web: rete `<QRZ>-BEACON`,
+`MEDIA`, `LEDTEST`, `PARROT`; elenco completo all'inizio di `firmware/main/main.c`. Pagina web: rete `<QRZ>-BEACON`,
 http://192.168.4.1.
 
 ## Collaborare
@@ -103,7 +107,9 @@ se si usa un transverter).
 ## Crediti
 
 - DVB-S2: ETSI EN 302 307-1 V1.4.1. Le tabelle LDPC sono estratte dalla norma e verificate (`tools/dvbs2/etsi_tables.py`).
-- Componenti Espressif: ESP-IDF, esp32-camera, esp_h264 (Apache 2.0; esp_h264 contiene OpenH264, BSD).
+- Componenti Espressif: ESP-IDF, esp32-camera, esp_h264 (Apache 2.0; esp_h264 contiene OpenH264, BSD, e tinyh264).
+- Ricezione del Parrot: motore di cattura "dump" della radio dell'ESP32-S3 come documentato da eSpDR / esp32-sdr-trx
+  (0BSD); il ricevitore DVB-S2 (rilevamento, sincronismo, PL header, LDPC, TS, SDT) è codice nostro.
 
 ## Licenza
 

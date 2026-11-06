@@ -73,7 +73,7 @@
 
 int pdx_s2_selftest(void);                  /* s2_test.c */
 
-#define FW_VERSION "v1.2.0-dev Parrot"
+#define FW_VERSION "v1.2.0"
 #define TX_MAX_S   300u
 
 #define BOOT_GPIO 0                 /* pulsante BOOT della scheda: premuto = livello basso */
