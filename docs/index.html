@@ -45,6 +45,19 @@ td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertic
   <p class="mut" style="margin:.3em 0 0">Chrome / Edge (Windows, Linux, macOS) · Web Serial · no software to install</p>
 </div>
 
+<div class="card">
+  <b>Seeed XIAO ESP32S3 Plus</b> <span class="mut">(16 MB flash, no camera · development build / versione di sviluppo)</span><br>
+  <esp-web-install-button manifest="install/manifest_xiao.json">
+    <button slot="activate" style="font-size:1rem;padding:8px 16px;border-radius:8px;border:1px solid var(--acc);background:transparent;color:var(--acc);font-weight:700;cursor:pointer">Install / Installa XIAO (dev)</button>
+    <span slot="unsupported" class="warn">Use Chrome or Edge on a computer. / Usate Chrome o Edge su un computer.</span>
+    <span slot="not-allowed" class="warn">The page must be opened over HTTPS. / La pagina va aperta in HTTPS.</span>
+  </esp-web-install-button>
+  <p class="mut" style="margin:.3em 0 0">Native USB port, no driver (<code>USB JTAG/serial debug unit</code>). Only the
+  <b>Plus</b> (16 MB): the plain XIAO ESP32S3 has 8 MB flash. Test card, image, live bars and Parrot; no camera, no PiP.
+  / Porta USB nativa, senza driver. Solo la <b>Plus</b> (16 MB): la XIAO ESP32S3 normale ha 8 MB di flash. Monoscopio,
+  immagine, barre e Parrot; niente camera né PiP.</p>
+</div>
+
 <p class="warn">Licensed radio amateurs only: transmit only on the frequencies and at the power allowed by your licence,
 always with an output filter. / Solo per radioamatori con licenza, sulle frequenze e con le potenze consentite, sempre
 con un filtro sull'uscita.</p>

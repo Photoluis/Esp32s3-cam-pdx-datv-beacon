@@ -97,6 +97,9 @@ test card, custom image, live bars and the Parrot reply work; camera and PiP are
 serial console on the **native USB** (no CH340, `/dev/ttyACM0` on Linux), STOP on the **BOOT** button (GPIO0), status
 LED = the yellow user LED (GPIO21), told apart by its rhythm: on = receiving, a short blink every 2 s = standby,
 blinking 1–5 Hz = TX, fast blinking = callsign acquired / activity. Antenna on the U.FL connector.
+
+Browser installer: the second button on the installer page, **Install XIAO (dev)** (Plus only: the partition table
+needs 16 MB of flash). From source:
 ```
 cd firmware
 idf.py -B build_xiao -D SDKCONFIG=build_xiao/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.xiao" build

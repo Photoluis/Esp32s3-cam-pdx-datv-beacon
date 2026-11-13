@@ -98,6 +98,9 @@ pagina web. Differenze: console seriale sulla **USB nativa** (niente CH340, `/de
 pulsante **BOOT** (GPIO0), LED di stato = il LED giallo della scheda (GPIO21), distinto dal ritmo: acceso = ricezione,
 lampo breve ogni 2 s = attesa, lampeggio 1–5 Hz = TX, lampeggio veloce = nominativo acquisito / attività. Antenna sul
 connettore U.FL.
+
+Installatore dal browser: il secondo pulsante della pagina, **Installa XIAO (dev)** (solo la Plus: la tabella delle
+partizioni richiede 16 MB di flash). Dai sorgenti:
 ```
 cd firmware
 idf.py -B build_xiao -D SDKCONFIG=build_xiao/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.xiao" build
