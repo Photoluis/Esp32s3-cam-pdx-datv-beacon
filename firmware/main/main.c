@@ -439,6 +439,10 @@ static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
     int64_t t_diag = esp_timer_get_time() + 5000000;
     const int64_t t_warm = esp_timer_get_time() + 1500000;
     pdx_rx_stream_stats_t st;
+    /* livello digitale (13/11, ESP32-ATV a pochi metri): con lo shift fisso a 8 un segnale forte satura l'uscita int8
+     * (87 % dei valori), lo spettro si appiattisce e il rilevatore vede 9 dB invece di 21. Il guadagno RF non cambia
+     * nulla (l'ADC non satura): si alza lo shift finché la saturazione sparisce, si riabbassa con segnali deboli */
+    unsigned shift = 8;
     while (esp_timer_get_time() < t_end) {
         if (stop_requested()) { printf("PARROT ascolto fermato\n"); return -1; }
         if (esp_timer_get_time() > t_diag) {
@@ -453,8 +457,15 @@ static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
         const uint32_t lo_look = nar ? lo + PARROT_NARROW_OFS : lo;
         s2rx_set_narrow(nar);
         if (pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) ||
-            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { fails++; vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, shift, &st)) { fails++; vTaskDelay(pdMS_TO_TICKS(100)); continue; }
         looks++;
+        if (st.clipped > st.samples_out / 25u && shift < 14) {    /* oltre il 2 % dei valori I/Q saturati */
+            shift += 2;
+            printf("PARROT segnale forte (rms %.0f, saturati %u): shift %u\n", (double)st.rms, (unsigned)st.clipped, shift);
+            fflush(stdout);
+            continue;
+        }
+        if (shift > 8 && st.rms < 12.0f) shift--;
         /* riscaldamento (06/11): nel primo secondo dopo l'accensione della RX lo spettro ha gobbe finte (8-11 dB) */
         if (esp_timer_get_time() < t_warm) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
         float fc = 0, w = 0, pk = 0;
@@ -466,7 +477,7 @@ static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
         {   /* seconda occhiata di conferma (06/11): un disturbo a +110 kHz largo 104 kHz faceva perdere attesa e cattura */
             float fc2 = 0, w2 = 0, pk2 = 0;
             const bool ok2 = !pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) &&
-                             !pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st) &&
+                             !pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, shift, &st) &&
                              s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 6.0f, &fc2, &w2, &pk2) &&
                              fabsf(fc2 - fc) < 30e3f && w2 > 0.7f * w && w2 < 1.4f * w;
             if (!ok2) {
@@ -484,7 +495,7 @@ static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
         vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
         /* stretto: 4 s a 500 ksps (frame normale da 0,83 s a 40 kS); largo: 2 s a 1 Msps come prima */
         if (pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) ||
-            pdx_rx_stream((int8_t *)rx_buf, 2000000u, nar ? 32 : 16, 3, 8, &st)) continue;
+            pdx_rx_stream((int8_t *)rx_buf, 2000000u, nar ? 32 : 16, 3, shift, &st)) continue;
         rx_len = 2u * st.samples_out; rx_fs = nar ? 500000u : 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
         s2rx_set_board_capture(true);
         pdx_led_idle();                                      /* decodifica: radio non in ascolto */
@@ -494,7 +505,8 @@ static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
         s2rx_run((const int8_t *)rx_buf, st.samples_out, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
         rep.freq_hz += (float)(int32_t)(rx_lo - lo_eff);    /* scostamento dalla frequenza del beacon, non dal LO spostato */
         if (rep.call[0]) {
-            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, st.samples_out));
+            /* dBFS dell'uscita a shift 8 (scala di prima): ogni passo di shift vale 6 dB */
+            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, st.samples_out) + 6.02f * (float)(shift - 8u));
             pdx_led_qso();                  /* verde veloce fino alla risposta (già acceso da on_call a metà decodifica) */
             return 1;
         }
