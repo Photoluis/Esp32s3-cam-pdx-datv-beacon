@@ -819,7 +819,9 @@ static float block_phase(const cf *y, int v, uint32_t at, uint32_t cnt, const cf
 
 typedef struct { float mer; int iter; bool ok; } fres_t;
 
-static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int vn, work_t *W, fres_t *res)
+/* freq: con i pilot, fase svolta attorno alla frequenza residua stimata nel frame (false: come prima, attorno alla fase
+ * del punto precedente) */
+static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int vn, work_t *W, fres_t *res, bool freq)
 {
     geom_t g;
     if (!geom(v, &g)) return false;
@@ -847,7 +849,35 @@ static bool demod_frame(const symbuf_t *S, uint32_t m, int v, bool has_next, int
             pts[np] = (float)at + 17.5f; phs[np] = atan2f(acc.im, acc.re); np++;
         }
         if (has_next) { pts[np] = (float)g.L + 45; phs[np++] = phn; }
-        for (int i = 1; i < np; i++) phs[i] = wrap_to(phs[i], phs[i - 1], 2 * (float)M_PI);
+        /* frequenza residua di questo frame (RF del 13/11, ESP32-ATV a 40 kS): la correzione globale vale per tutta la
+         * cattura, ma il trasmettitore deriva di decine di Hz/s; a 40 kS i pilot distano 37 ms e 20 Hz di errore
+         * ruotano la fase di 4,6 rad tra due pilot: lo svolgimento sceglieva il giro sbagliato (LDPC 2/18 a MER 20).
+         * Stima con la correlazione a distanza 18 su header e blocchi di pilot (simboli noti), poi svolgimento
+         * attorno alla fase prevista */
+        float w = 0;
+        if (freq) {
+            /* stime pesate con lag^2 x coppie: header (e il successivo) a distanza 45, pilot a distanza 18 */
+            float sw = 0, sp = 0;
+            cf t[90];
+            for (int h = 0; h < (has_next ? 2 : 1); h++) {
+                const uint32_t at = h ? g.L : 0;
+                cf q = {0, 0};
+                for (uint32_t i = 0; i < 90; i++) t[i] = cmulc(W->y[at + i], hdr_sym(h ? vn : v, (int)i));
+                for (uint32_t i = 45; i < 90; i++) { const cf c = cmulc(t[i], t[i - 45]); q.re += c.re; q.im += c.im; }
+                sw += 45.0f * 45.0f * 45.0f; sp += 45.0f * 45.0f * 45.0f * atan2f(q.im, q.re) / 45.0f;
+            }
+            cf q = {0, 0};
+            uint32_t npair = 0;
+            for (uint32_t b = 0; 16 * (b + 1) < g.slots; b++) {
+                const uint32_t at = 90 + 90 * 16 * (b + 1) + 36 * b;
+                for (uint32_t i = 0; i < 36; i++) t[i] = cmulc(W->y[at + i], cmulc(pil, JM[gold_R[at + i - 90]]));
+                for (uint32_t i = 18; i < 36; i++) { const cf c = cmulc(t[i], t[i - 18]); q.re += c.re; q.im += c.im; }
+                npair += 18;
+            }
+            if (npair) { sw += 18.0f * 18.0f * (float)npair; sp += 18.0f * 18.0f * (float)npair * atan2f(q.im, q.re) / 18.0f; }
+            w = sp / sw;
+        }
+        for (int i = 1; i < np; i++) phs[i] = wrap_to(phs[i], phs[i - 1] + w * (pts[i] - pts[i - 1]), 2 * (float)M_PI);
         for (uint32_t d = 0; d < g.ndata; d++) {
             const float p = (float)data_pos(&g, d);
             int i = 0;
@@ -1167,7 +1197,11 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
         geom_t g;
         if (!geom(hv[i], &g)) { ts_push(&T, NULL, 0, 0, false); continue; }
         fres_t fr;
-        if (!demod_frame(&S, hm[i], hv[i], i + 1 < nh, i + 1 < nh ? hv[i + 1] : 0, &W, &fr)) {
+        bool dm = demod_frame(&S, hm[i], hv[i], i + 1 < nh, i + 1 < nh ? hv[i + 1] : 0, &W, &fr, true);
+        /* con segnale debole la stima della frequenza del frame può sbagliare dove lo svolgimento semplice andava:
+         * si riprova senza (LDPC: pochi ms) */
+        if (dm && !fr.ok && g.pilots) dm = demod_frame(&S, hm[i], hv[i], i + 1 < nh, i + 1 < nh ? hv[i + 1] : 0, &W, &fr, false);
+        if (!dm) {
             if (hm[i] + g.L <= S.nsym) lg("frame %d non demodulato (memoria per LDPC o scrambling?)", i);
             break;
         }
