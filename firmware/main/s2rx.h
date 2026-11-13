@@ -48,5 +48,5 @@ void s2rx_set_board_capture(bool on);
 
 /* true per i segnali stretti (SR 40..100 kS) catturati con il LO spostato di 80 kHz sopra il segnale: il rilevatore
  * ignora +-35 kHz attorno al LO (gobba della radio), cerca il segnale solo da -150 a -20 kHz e s2rx_detect accetta
- * larghezze da 30 a 90 kHz */
+ * larghezze da 32 a 90 kHz (portanti scartate) */
 void s2rx_set_narrow(bool on);

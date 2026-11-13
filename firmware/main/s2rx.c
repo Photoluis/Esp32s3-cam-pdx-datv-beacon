@@ -251,6 +251,14 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
         const float f_hi = (float)(hi - NFFT / 2) * df + (hi < NFFT - 1 ? df * (ps[hi] - lvl) / fmaxf(ps[hi] - ps[hi + 1], 1e-30f) : 0);
         *center = (f_lo + f_hi) / 2;
         *width = f_hi - f_lo;
+        if (narrow) {
+            /* una portante (residuo dell'LO di un trasmettitore a livello basso, RF del 13/11 con ESP32-ATV a AMP 10)
+             * dopo la media su +-15 kHz sembra un segnale da 30 kHz: il suo bin più alto supera di molto la media */
+            float pm = 0, pa = 0;
+            for (int k = lo; k <= hi; k++) { pm = fmaxf(pm, p[k]); pa += p[k]; }
+            pa /= (float)(hi - lo + 1);
+            if (pm > 6.0f * pa) *width = 0;
+        }
     }
     E->release(x); E->release(p); E->release(ps); E->release(srt);
     return ok;
@@ -1248,6 +1256,6 @@ bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, 
     const float mi = (float)((double)si / n), mq = (float)((double)sq / n);
     *peak_db = 0;
     if (!detect(iq, n, fs, mi, mq, center, width, peak_db)) return false;
-    if (narrow) return *peak_db >= min_db && *width >= 30e3f && *width <= 90e3f;    /* larghezza a -3 dB ~ SR: 40..66 kS */
+    if (narrow) return *peak_db >= min_db && *width >= 32e3f && *width <= 90e3f;    /* larghezza a -3 dB ~ SR: 40..66 kS */
     return *peak_db >= min_db && *width >= 90e3f && *width <= 700e3f;    /* larghezze del DATV (SR 66..500 kS) */
 }
