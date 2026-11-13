@@ -2,7 +2,7 @@
 
 ## In sviluppo
 
-- **Seeed XIAO ESP32S3 / XIAO ESP32S3 Plus senza camera:** variante di compilazione `sdkconfig.defaults.xiao`
+- **Seeed XIAO ESP32S3 Plus (16 MB di flash) senza camera:** variante di compilazione `sdkconfig.defaults.xiao`
   (`CONFIG_PDX_BOARD_XIAO_S3`): console sulla USB nativa (USB-Serial-JTAG), LED giallo su GPIO21 con ritmi al posto
   dei colori, nessuna camera (voci nascoste nella pagina web, `SET cam` solo 0). Guida: `docs/INSTALL.md`.
 - **Parrot da 40 kS:** riceve anche 40, 50, 66 e 100 kS (velocità di ESP32-ATV). Occhiate alterne con il LO 80 kHz
