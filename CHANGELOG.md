@@ -7,12 +7,16 @@
   dei colori, nessuna camera (voci nascoste nella pagina web, `SET cam` solo 0). Guida: `docs/INSTALL.md`.
 - **Parrot da 40 kS:** riceve anche 40, 50, 66 e 100 kS (velocità di ESP32-ATV). Occhiate alterne con il LO 80 kHz
   sopra il segnale e la gobba della radio attorno al LO ignorata; cattura di 4 s a 500 ksps (nuova decimazione 32:
-  CIC3 /16 e mezza banda /2 sui due core). Provato su catture
-  sintetiche (40/50/66 kS, frame corti e normali), non ancora in aria.
+  CIC3 /16 e mezza banda /2 sui due core); portanti dei trasmettitori scartate. Ricevitore: frequenza residua stimata
+  in ogni frame (a 40 kS i pilot distano 37 ms: con la deriva del trasmettitore l'LDPC passava in 2 frame su 18).
+  Provato in aria con ESP32-ATV: 40 kS 19/19 frame MER 19,9 dB, 66 kS 31/31 frame MER 20,9 dB.
+- **Parrot, segnali forti:** livello digitale automatico (shift da 8 a 14) quando un'occhiata satura; prima una
+  stazione a pochi metri saturava l'uscita int8 e il rilevatore la scartava (9 dB invece di 21).
 - **Risposta e beacon da 40 kS:** `SET sr 40|50|66|100`; risposta con l'SR e la lunghezza dei frame ricevuti. Sotto
   100 kS frame corti; immagine fissa (barre dal vivo / risposta del Parrot) a 2 fps senza audio; sotto 150 kbit/s di
   TS PAT/PMT ogni 0,5 s e PCR ogni 100 ms (prima avrebbero occupato quasi tutto il TS). Il monoscopio precodificato non
-  sta in un TS così lento: usare `monosrc LIVE` o `IMAGE`.
+  sta in un TS così lento: usare `monosrc LIVE` o `IMAGE`. Provato in aria: 40 kS 3/4, 66 kS 3/4 e 1/2 ricevuti
+  sull'app ESP32-ATV.
 
 ## v1.2.0 — 06/11/2026
 
