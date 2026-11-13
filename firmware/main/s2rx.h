@@ -1,5 +1,5 @@
 /* ESP32-S3_PDX Parrot - IZ7PDX - GPL-3.0
- * Ricevitore DVB-S2 (QPSK, CCM, un TS) su una cattura I/Q int8 a 1 Msps: porting in C di tools/parrot/s2_rx.py.
+ * Ricevitore DVB-S2 (QPSK, CCM, un TS) su una cattura I/Q int8 a 1 Msps (0,5 Msps per SR sotto 100 kS): porting in C di tools/parrot/s2_rx.py.
  * C portabile (compilato anche sul PC per il confronto con il prototipo): memoria dalle funzioni dell'ambiente. */
 #pragma once
 #include <stdbool.h>
@@ -45,3 +45,8 @@ bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, 
 /* true se la cattura viene dal decimatore della scheda (RXSTREAM, PARROT): il rilevatore ne compensa la risposta;
  * false per catture caricate dal PC (RXLOAD) */
 void s2rx_set_board_capture(bool on);
+
+/* true per i segnali stretti (SR 40..100 kS) catturati con il LO spostato di 80 kHz sopra il segnale: il rilevatore
+ * ignora +-35 kHz attorno al LO (gobba della radio), cerca il segnale solo da -150 a -20 kHz e s2rx_detect accetta
+ * larghezze da 30 a 90 kHz */
+void s2rx_set_narrow(bool on);

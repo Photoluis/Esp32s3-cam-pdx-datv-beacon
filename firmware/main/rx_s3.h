@@ -20,7 +20,8 @@ uint32_t pdx_rx_lo_hz(void);
  * ATTENZIONE: lo spettro è invertito (prova del 02/11): il segnale vero è I - jQ. */
 uint32_t pdx_rx_capture(uint32_t n, const uint32_t **data);
 /* P1b: cattura continua con decimazione in tempo reale sul core 0 (interruzioni sospese).
- * Filtro CIC di ordine `order` (2 o 3) e decimazione `decim` (8 o 16: 2 o 1 Msps), uscita int8 I/Q interlacciata già
+ * Filtro CIC di ordine `order` (2 o 3) e decimazione `decim` (8 o 16: 2 o 1 Msps; 32 = CIC3 /16 e mezza banda /2,
+ * 500 ksps, per i segnali sotto 100 kS), uscita int8 I/Q interlacciata già
  * coniugata (spettro dritto), valore >> shift con saturazione. out: n_out campioni complessi (2 byte ciascuno). */
 typedef struct {
     uint32_t pairs_in, samples_out, overruns, cycles, clipped, max_lag;

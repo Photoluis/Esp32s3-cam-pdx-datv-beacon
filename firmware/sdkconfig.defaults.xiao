@@ -1,0 +1,6 @@
+# Seeed XIAO ESP32S3 / XIAO ESP32S3 Plus senza camera (si aggiunge a sdkconfig.defaults):
+# idf.py -B build_xiao -D SDKCONFIG=build_xiao/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.xiao" build
+CONFIG_PDX_BOARD_XIAO_S3=y
+# console sulla USB nativa (la XIAO non ha il CH340)
+# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

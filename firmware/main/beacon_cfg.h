@@ -48,7 +48,9 @@ typedef struct {
 
 enum { PDX_MONO_STD, PDX_MONO_USR_VIDEO, PDX_MONO_USR_IMAGE, PDX_MONO_LIVE };
 enum { PDX_XVTR_SUM, PDX_XVTR_DIFF };
-enum { PDX_SR_333, PDX_SR_125, PDX_SR_250, PDX_SR_500, PDX_SR_1000, PDX_SR_N };
+/* in fondo le velocità basse (aggiunte dopo: gli indici salvati in NVS restano validi) */
+enum { PDX_SR_333, PDX_SR_125, PDX_SR_250, PDX_SR_500, PDX_SR_1000, PDX_SR_40, PDX_SR_50, PDX_SR_66, PDX_SR_100, PDX_SR_N };
+#define PDX_SR_SHORTF 100000u   /* sotto questo SR frame corti (16200 bit): il primo frame arriva prima (ESP32-ATV) */
 uint32_t pdx_cfg_sr(const pdx_cfg_t *c);   /* symbol rate in S/s */
 
 #define PDX_LO_MAX_KHZ 100000000u   /* 100 GHz */

@@ -36,6 +36,9 @@ static void apply_flip(void)
 
 const char *pdx_cam_live_init(int fps, int kbps, bool camera)
 {
+#if CONFIG_PDX_BOARD_XIAO_S3
+    if (camera) return "camera assente (XIAO)";                     /* i pin della camera Freenove sono altri */
+#endif
     if (camera && cam_ok) apply_flip();
     if (camera && !cam_ok) {
         camera_config_t c = {

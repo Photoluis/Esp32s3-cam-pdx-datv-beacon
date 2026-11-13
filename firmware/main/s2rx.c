@@ -32,6 +32,8 @@ typedef struct { float re, im; } cf;
 static const s2rx_env_t *E;
 static bool droop_comp;                /* cattura dal decimatore della scheda: compensare la sua risposta */
 void s2rx_set_board_capture(bool on) { droop_comp = on; }
+static bool narrow;                    /* SR sotto 100 kS con il LO spostato: la gobba della radio attorno al LO si ignora */
+void s2rx_set_narrow(bool on) { narrow = on; }
 static void lg(const char *fmt, ...)
 {
     if (!E || !E->log) return;
@@ -47,7 +49,8 @@ static void *zalloc(size_t n) { void *p = E->alloc(n); if (p) memset(p, 0, n); r
 
 static const char *const RATES[11] = {"1/4", "1/3", "2/5", "1/2", "3/5", "2/3", "3/4", "4/5", "5/6", "8/9", "9/10"};
 static const float THRESH[11] = {-2.35f, -1.24f, -0.30f, 1.00f, 2.23f, 3.10f, 4.03f, 4.68f, 5.18f, 6.20f, 6.42f};
-static const uint32_t SR_STD[] = {66000, 125000, 250000, 333000, 500000, 1000000};
+/* 40..100 kS: le velocità basse di ESP32-ATV (OK1CDJ) */
+static const uint32_t SR_STD[] = {40000, 50000, 66666, 100000, 125000, 250000, 333000, 400000, 500000, 1000000};
 #define NSR (sizeof(SR_STD) / sizeof(SR_STD[0]))
 
 /* ------------------------------------------------------------------------------------ PLHEADER */
@@ -179,21 +182,35 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
         fft(x, NFFT);
         for (int k = 0; k < NFFT; k++) p[(k + NFFT / 2) % NFFT] += cabs2(x[k]);   /* fftshift */
     }
-    if (droop_comp && fs > 0.99e6f && fs < 1.01e6f) {
+    const bool hb = fs > 0.49e6f && fs < 0.51e6f;                    /* decimazione 32: mezza banda dopo il CIC */
+    if (droop_comp && ((fs > 0.99e6f && fs < 1.01e6f) || hb)) {
         /* il decimatore della scheda (somma di 4 + CIC3 /4 a 16 Msps) cala verso i bordi: il rumore ha una forma a
          * cupola che sembrava un segnale (04/11). Si divide per |H(f)|^2, normalizzata in continua */
         for (int k = 0; k < NFFT; k++) {
-            const float f = ((float)(k - NFFT / 2) * fs / NFFT) / 16e6f;          /* frequenza normalizzata a 16 Msps */
+            const float fa = (float)(k - NFFT / 2) * fs / NFFT;
+            const float f = fa / 16e6f;                                         /* frequenza normalizzata a 16 Msps */
             const float x4 = (float)M_PI * f * 4, x16 = (float)M_PI * f * 16;
             const float h1 = fabsf(f) < 1e-9f ? 4.0f : sinf(x4) / sinf((float)M_PI * f);       /* somma di 4 */
             const float h3 = fabsf(f) < 1e-9f ? 4.0f : sinf(x16) / sinf(x4);                  /* CIC /4 a 4 Msps */
             float g = (h1 / 4) * (h3 / 4) * (h3 / 4) * (h3 / 4);
+            if (hb) {                                                           /* (-1 0 9 16 9 0 -1)/32 a 1 Msps */
+                const float w = 2.0f * (float)M_PI * fa / 1e6f;
+                g *= (16.0f + 18.0f * cosf(w) - 2.0f * cosf(3.0f * w)) / 32.0f;
+            }
             g = g * g;
             if (g < 1e-3f) g = 1e-3f;
             p[k] /= g;
         }
     }
-    {   /* la continua della radio varia lentamente: picco stretto al centro, più alto della gobba di un segnale DATV.
+    if (narrow) {
+        /* segnali stretti (LO spostato di 80 kHz sopra il segnale): la gobba dell'S3 attorno al LO (+-25 kHz, misurata
+         * con ESP32-ATV) sembra da sola un segnale da 40 kS e la media dei vicini resterebbe sui suoi fianchi: i bin
+         * entro +-35 kHz vanno al livello del rumore (decimo percentile) */
+        memcpy(srt, p, NFFT * sizeof(float));
+        qsort(srt, NFFT, sizeof(float), cmp_float);
+        const int c = NFFT / 2, half = (int)(35e3f / (fs / NFFT)) + 1;
+        for (int k = c - half; k <= c + half; k++) if (k >= 0 && k < NFFT) p[k] = srt[NFFT / 10];
+    } else {   /* la continua della radio varia lentamente: picco stretto al centro, più alto della gobba di un segnale DATV.
          * I bin entro +-12 kHz si sostituiscono con la media dei vicini appena fuori (provato in RF il 04/11) */
         const int c = NFFT / 2, half = (int)(12e3f / (fs / NFFT)) + 1;
         if (c - half - 3 >= 0 && c + half + 3 < NFFT) {
@@ -203,10 +220,11 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
             for (int k = c - half; k <= c + half; k++) p[k] = a;
         }
     }
+    const int sm = (int)(15e3f / (fs / NFFT));                       /* +-15 kHz: i picchi stretti si appiattiscono */
     for (int k = 0; k < NFFT; k++) {
         float a = 0;
         int c = 0;
-        for (int j = k - 15; j <= k + 15; j++) if (j >= 0 && j < NFFT) { a += p[j]; c++; }   /* 31 kHz: i picchi stretti si appiattiscono */
+        for (int j = k - sm; j <= k + sm; j++) if (j >= 0 && j < NFFT) { a += p[j]; c++; }
         ps[k] = a / (float)c;
     }
     memcpy(srt, ps, NFFT * sizeof(float));
@@ -215,7 +233,11 @@ static bool detect(const int8_t *iq, uint32_t n, float fs, float mi, float mq, f
     /* cattura della scheda (Parrot sulla propria frequenza): il centro del segnale entro +-200 kHz. Ai bordi ci sono
      * disturbi stretti che la compensazione del decimatore alza fino a +11 dB sopra il segnale vero (RF del 04/11) */
     const int kr = droop_comp ? (int)(200e3f / (fs / NFFT)) : NFFT / 2;
-    const int k0 = NFFT / 2 - kr > 0 ? NFFT / 2 - kr : 0, k1 = NFFT / 2 + kr < NFFT ? NFFT / 2 + kr : NFFT - 1;
+    int k0 = NFFT / 2 - kr > 0 ? NFFT / 2 - kr : 0, k1 = NFFT / 2 + kr < NFFT ? NFFT / 2 + kr : NFFT - 1;
+    if (narrow) {                                                    /* il segnale stretto sta sotto il LO: -150..-20 kHz */
+        k0 = NFFT / 2 - (int)(150e3f / (fs / NFFT)); k1 = NFFT / 2 - (int)(20e3f / (fs / NFFT));
+        if (k0 < 0) k0 = 0;
+    }
     int pk = k0;
     for (int k = k0 + 1; k <= k1; k++) if (ps[k] > ps[pk]) pk = k;
     *peak_db = floor > 0 ? 10.0f * log10f(ps[pk] / floor) : 0;
@@ -276,7 +298,7 @@ static void fe_init(fe_t *f, float fs, float fc, float sr, float mi, float mq)
     }
     memset(f, 0, sizeof(*f));
     int half = (int)lroundf(4.0f * fs / sr);                         /* +-4 simboli */
-    if (2 * half + 1 > MAXTAP) half = (MAXTAP - 1) / 2;
+    if (2 * half + 1 > MAXTAP) half = (MAXTAP - 1) / 2;   /* 81 coefficienti a 40 kS: MER uguale (+0,2 dB), 1,5 volte più lento */
     f->ntap = 2 * half + 1;
     float hf[MAXTAP], hmax = 0;
     for (int t = 0; t < f->ntap; t++) { hf[t] = rrc((float)(t - half) * sr / fs, 0.35f); if (fabsf(hf[t]) > hmax) hmax = fabsf(hf[t]); }
@@ -1034,7 +1056,7 @@ uint32_t s2rx_run(const int8_t *iq, uint32_t n, float fs, uint32_t sr_hint, cons
         }
     }
     lg("segnale: centro %+.0f Hz, larghezza %.0f Hz -> SR %.0f, picco %.1f dB", fc, width, sr, pk);
-    if (sr < 50e3f || sr > fs / 2) { lg("SR %.0f fuori dai limiti: non è DVB-S2", sr); return 0; }
+    if (sr < 35e3f || sr > fs / 2) { lg("SR %.0f fuori dai limiti: non è DVB-S2", sr); return 0; }
     /* al massimo 700k simboli (~21 frame normali QPSK, come 2 s a 333 kS): a 500 kS i 2 s davano 1M simboli = 2 MB e
      * le tabelle LDPC non trovavano più posto in PSRAM ("frame 0 non demodulato", RF del 06/11) */
     if ((float)n / (fs / sr) > 700000.0f) n = (uint32_t)(700000.0f * (fs / sr));
@@ -1226,5 +1248,6 @@ bool s2rx_detect(const int8_t *iq, uint32_t n, float fs, const s2rx_env_t *env, 
     const float mi = (float)((double)si / n), mq = (float)((double)sq / n);
     *peak_db = 0;
     if (!detect(iq, n, fs, mi, mq, center, width, peak_db)) return false;
+    if (narrow) return *peak_db >= min_db && *width >= 30e3f && *width <= 90e3f;    /* larghezza a -3 dB ~ SR: 40..66 kS */
     return *peak_db >= min_db && *width >= 90e3f && *width <= 700e3f;    /* larghezze del DATV (SR 66..500 kS) */
 }

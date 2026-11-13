@@ -22,8 +22,8 @@ Open the web page (Wi-Fi network `<CALLSIGN>-BEACON`, http://192.168.4.1), secti
 In **Beacon cycle** set a **pause of at least 30 s** (35–40 s is more comfortable): the beacon listens only during the
 pause. Then press **Apply and save** and **START BEACON**.
 
-The other station must transmit **DVB-S2 QPSK** on the **beacon frequency (±200 kHz)** with a symbol rate **up to
-500 kS**. Any FEC and frame type are accepted. Serial commands: `SET parrot on`, `SET preply 40`, `SET pstab 5`, `SAVE`.
+The other station must transmit **DVB-S2 QPSK** on the **beacon frequency (±200 kHz)** with a symbol rate **from 40 to
+500 kS** (40, 50, 66, 100, 125, 250, 333, 400, 500 kS, e.g. from ESP32-ATV). Any FEC and frame type are accepted. Serial commands: `SET parrot on`, `SET preply 40`, `SET pstab 5`, `SAVE`.
 
 ## 2. Tutorial: reading the cycle diagram
 
@@ -109,6 +109,11 @@ Any character sent on the serial port also stops the transmission.
   ignored (they would also be at the limit of decoding).
 - At **500 kS** the MER read by the beacon is a few dB lower than at 333 kS (edge attenuation of the board's receive
   filter); the margin D tells whether the signal was really decodable.
+- **Below 100 kS** (40–66 kS) the beacon listens alternately on its frequency and with the LO 80 kHz above it (the
+  receiver has a ±25 kHz hump around its LO that would cover a narrow signal) and records 4 s at 500 ksps instead of
+  2 s at 1 Msps. Use **short frames** (a normal frame lasts 0.83 s at 40 kS). The reply uses the same symbol rate and
+  frame size; below 100 kS it is a still picture at 2 fps without audio (the TS carries only 55–145 kbit/s), with PAT/PMT
+  every 0.5 s and PCR every 100 ms. Not yet tested on the air (decoder tested on synthetic 40/50/66 kS captures).
 - Very strong signals (RF close to 0 dBFS) can saturate the receiver: move away or reduce power.
 - During the pauses with Parrot on, the access point is off; to change settings stop the beacon (BOOT) first.
 - Tested on the air on 06/11/2026 with a Portsdown 4 (H.264 High, 1024x576): 333 kS 3/4 MER 18.6–20.1 dB,

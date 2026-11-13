@@ -1,5 +1,19 @@
 # Changelog
 
+## In sviluppo
+
+- **Seeed XIAO ESP32S3 / XIAO ESP32S3 Plus senza camera:** variante di compilazione `sdkconfig.defaults.xiao`
+  (`CONFIG_PDX_BOARD_XIAO_S3`): console sulla USB nativa (USB-Serial-JTAG), LED giallo su GPIO21 con ritmi al posto
+  dei colori, nessuna camera (voci nascoste nella pagina web, `SET cam` solo 0). Guida: `docs/INSTALL.md`.
+- **Parrot da 40 kS:** riceve anche 40, 50, 66 e 100 kS (velocità di ESP32-ATV). Occhiate alterne con il LO 80 kHz
+  sopra il segnale e la gobba della radio attorno al LO ignorata; cattura di 4 s a 500 ksps (nuova decimazione 32:
+  CIC3 /16 e mezza banda /2 sui due core). Provato su catture
+  sintetiche (40/50/66 kS, frame corti e normali), non ancora in aria.
+- **Risposta e beacon da 40 kS:** `SET sr 40|50|66|100`; risposta con l'SR e la lunghezza dei frame ricevuti. Sotto
+  100 kS frame corti; immagine fissa (barre dal vivo / risposta del Parrot) a 2 fps senza audio; sotto 150 kbit/s di
+  TS PAT/PMT ogni 0,5 s e PCR ogni 100 ms (prima avrebbero occupato quasi tutto il TS). Il monoscopio precodificato non
+  sta in un TS così lento: usare `monosrc LIVE` o `IMAGE`.
+
 ## v1.2.0 — 06/11/2026
 
 - **Modo Parrot:** nelle pause del ciclo il beacon ascolta sulla propria frequenza (±200 kHz), riceve un DVB-S2 QPSK

@@ -31,6 +31,7 @@ typedef struct {
     /* video dal vivo */
     const pdx_live_cfg_t *cfg;
     int fps, kbps;
+    bool no_audio;                       /* immagine fissa a SR basso: TS senza audio */
     uint8_t *vbuf[PDX_VQ_LEN];
     uint32_t cam_frames, cam_dropped, cam_enc_max_us, cam_enc_sum_us, cam_bytes;
     const char *cam_err;
@@ -96,7 +97,8 @@ static bool video_step(live_t *L)
                                             &tc, &te);
     if (!len) { L->cam_dropped++; return false; }
     e->len = len;
-    e->pts = pdx_mux_now_90k(&L->mux) + CAM_DELAY_90K;
+    /* TS lento: un'immagine I occupa più di 1 s di TS, il PTS va più avanti (3 s) */
+    e->pts = pdx_mux_now_90k(&L->mux) + (L->no_audio ? 3u * CAM_DELAY_90K : CAM_DELAY_90K);
     pdx_mux_vq_commit(&L->mux);
     L->cam_frames++;
     L->cam_bytes += len;
@@ -121,8 +123,11 @@ static const char *prepare(live_t *L, const pdx_live_cfg_t *c, double rate)
 {
     if (!c->es) return "file ES (audio) assente";
     if (c->video >= PDX_LV_PIP && !c->bg) return "immagine di sfondo assente";
-    const double need = es_content_bps(c->es, !live_video(c));
+    double need = es_content_bps(c->es, !live_video(c));
     static char msg[96];
+    /* immagine fissa (Parrot, barre dal vivo) a SR sotto 100 kS: senza audio, 2 fps, PSI e PCR più radi (ts_mux) */
+    L->no_audio = c->video == PDX_LV_IMG && !c->cam_kbps && rate < 150000.0;
+    if (L->no_audio) need = 0;
     if (need > rate * 0.92) {
         snprintf(msg, sizeof(msg), "il file ES richiede %.0f kbit/s, il TS con questo FEC ne porta %.0f", need / 1000.0,
                  rate / 1000.0);
@@ -130,15 +135,20 @@ static const char *prepare(live_t *L, const pdx_live_cfg_t *c, double rate)
     }
     L->cfg = c;
     if (live_video(c)) {
-        L->fps = c->cam_fps ? c->cam_fps : 6;
-        /* ciò che resta dopo audio, PSI/PCR e un margine per le immagini I più grandi */
-        int k = c->cam_kbps ? c->cam_kbps : (int)((rate - need - 30000.0) * 0.75 / 1000.0);
+        L->fps = c->cam_fps ? c->cam_fps : L->no_audio ? 2 : 6;
+        /* ciò che resta dopo audio, PSI/PCR e un margine per le immagini I più grandi (TS lento: PSI ~6 kbit/s,
+         * PCR ~15 kbit/s, SDT) */
+        int k = c->cam_kbps ? c->cam_kbps
+                            : L->no_audio ? (int)((rate - 25000.0) * 0.6 / 1000.0)
+                                          : (int)((rate - need - 30000.0) * 0.75 / 1000.0);
         L->kbps = k > 300 ? 300 : k;
-        if (L->kbps < 60) return "bitrate troppo basso per il video dal vivo";
+        if (L->kbps < (L->no_audio ? 12 : 60)) return "bitrate troppo basso per il video dal vivo";
         for (int i = 0; i < PDX_VQ_LEN; i++)
             if (!(L->vbuf[i] = heap_caps_malloc(VBUF_CAP, MALLOC_CAP_SPIRAM))) return "memoria";
     }
-    return pdx_mux_init(&L->mux, c->es, rate, c->service, c->provider, live_video(c));
+    const char *e = pdx_mux_init(&L->mux, c->es, rate, c->service, c->provider, live_video(c));
+    L->mux.no_audio = L->no_audio;
+    return e;
 }
 
 /* un DATA FIELD dal flusso dei pacchetti con il CRC-8 al posto del sync byte (5.1.4); SYNCD = bit fino al primo pacchetto */

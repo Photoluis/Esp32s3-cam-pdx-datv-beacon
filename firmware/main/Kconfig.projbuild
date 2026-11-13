@@ -1,0 +1,12 @@
+menu "PDX DATV Beacon"
+
+config PDX_BOARD_XIAO_S3
+    bool "Seeed XIAO ESP32S3 (Plus) senza camera"
+    default n
+    help
+        Scheda XIAO ESP32S3 / XIAO ESP32S3 Plus (8 MB PSRAM octal): console sulla USB nativa (USB-Serial-JTAG) al
+        posto della UART0 con il CH340, LED giallo a un colore su GPIO21 (acceso a livello basso) al posto del WS2812,
+        nessuna camera (monoscopio, immagine personalizzata e Parrot funzionano). Si compila con
+        sdkconfig.defaults.xiao (vedi docs/INSTALL.md).
+
+endmenu
