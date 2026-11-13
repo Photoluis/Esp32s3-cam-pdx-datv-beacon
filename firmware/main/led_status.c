@@ -13,7 +13,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#if CONFIG_PDX_BOARD_XIAO_S3
+#define MONO 1
+#define RES_HZ   1000000u            /* LED a un colore: 1 us per tick, mezzo simbolo fino a 32 ms */
+#else
+#define MONO 0
 #define RES_HZ   2500000u            /* 0,4 us per tick: WS2812 bit 0 = 1+2 tick, bit 1 = 2+1 tick (valori nominali) */
+#endif
 #define MEM_SYM  96u                 /* due blocchi da 48 simboli: tutta la sequenza del lampeggio */
 #define LOW_MAX  32767u              /* durata massima di metà simbolo, in tick */
 
@@ -33,7 +39,7 @@ void pdx_led_init(void)
     if (chan) return;
     const rmt_tx_channel_config_t cc = {
         .gpio_num = PDX_LED_GPIO, .clk_src = RMT_CLK_SRC_DEFAULT, .resolution_hz = RES_HZ,
-        .mem_block_symbols = MEM_SYM, .trans_queue_depth = 2,
+        .mem_block_symbols = MEM_SYM, .trans_queue_depth = 2, .flags.invert_out = MONO,   /* XIAO: acceso a 0 */
     };
     const rmt_copy_encoder_config_t ec = {};
     if (rmt_new_tx_channel(&cc, &chan) != ESP_OK || rmt_new_copy_encoder(&ec, &enc) != ESP_OK ||
@@ -94,8 +100,42 @@ static void send(unsigned n, bool loop)
     if (!loop) rmt_tx_wait_all_done(chan, 50);           /* il LED deve essere aggiornato prima della TX */
 }
 
+#if MONO
+/* livello fisso per "ticks", a pezzi da 2 x 32767 (come put_low) */
+static unsigned put_level(unsigned n, unsigned lvl, uint32_t ticks)
+{
+    while (ticks && n < MEM_SYM) {
+        const uint32_t a = ticks > LOW_MAX ? LOW_MAX : ticks;
+        ticks -= a;
+        const uint32_t b = ticks > LOW_MAX ? LOW_MAX : ticks;
+        ticks -= b;
+        pat[n++] = (rmt_symbol_word_t){.level0 = lvl, .duration0 = a, .level1 = lvl, .duration1 = b ? b : 1};
+    }
+    return n;
+}
+
+/* ciclo acceso on_ms / spento off_ms (off_ms = 0: fisso); colore nero o modo spento = LED spento, minimo = lampi da 20 ms
+ * con lo stesso ritmo */
+static void show_mono(uint8_t r, uint8_t g, uint8_t b, uint32_t on_ms, uint32_t off_ms)
+{
+    const uint32_t period = off_ms ? on_ms + off_ms : 300;  /* fisso: nel modo minimo lampi da 20 ms ogni 0,3 s */
+    uint32_t on = led_mode != PDX_LED_OFF && (r | g | b) ? on_ms : 0;
+    if (!off_ms && on) on = period;
+    if (led_mode == PDX_LED_MIN && on > 20) on = 20;
+    unsigned n = put_level(0, 1, on * (RES_HZ / 1000u));
+    n = put_level(n, 0, (period - on) * (RES_HZ / 1000u));
+    send(n, true);
+}
+#endif
+
 static void show_fixed(void)
 {
+#if MONO
+    /* attesa (giallo): un lampo breve ogni 2 s; gli altri colori fissi (RX verde): acceso */
+    if (last_rgb[0] == 77 && last_rgb[1] == 60) show_mono(1, 1, 1, 60, 1940);
+    else show_mono(last_rgb[0], last_rgb[1], last_rgb[2], 300, 0);
+    return;
+#endif
     uint8_t r = last_rgb[0], g = last_rgb[1], b = last_rgb[2];
     apply_mode(&r, &g, &b);
     unsigned n = put_low(0, 750);                        /* 300 us di reset */
@@ -106,6 +146,10 @@ static void show_fixed(void)
 
 static void show_blink(void)
 {
+#if MONO
+    show_mono(last_rgb[0], last_rgb[1], last_rgb[2], last_half_ms, last_half_ms);
+    return;
+#endif
     uint8_t r = last_rgb[0], g = last_rgb[1], b = last_rgb[2];
     apply_mode(&r, &g, &b);
     const uint32_t half = last_half_ms * (RES_HZ / 1000u);
@@ -127,6 +171,10 @@ static void show_base(void) { if (last_kind) show_blink(); else show_fixed(); }
 
 static void show_pattern(uint8_t r, uint8_t g, uint8_t b, uint32_t half_ms)
 {
+#if MONO
+    show_mono(r, g, b, half_ms, half_ms);
+    return;
+#endif
     apply_mode(&r, &g, &b);
     const uint32_t half = half_ms * (RES_HZ / 1000u);
     unsigned n = put_low(0, 750);

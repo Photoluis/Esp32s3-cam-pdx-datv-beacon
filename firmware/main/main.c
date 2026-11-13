@@ -4,7 +4,7 @@
  * v1.1.0: symbol rate 125/250/333/500/1000 kS (1000 kS solo monoscopio), QTH locator, livello a cursore (-40..-5 dB),
  * temperatura nel registro a fine segmento.
  *
- * Comandi sulla UART0 (porta TTL, 115200), uno per riga:
+ * Comandi sulla UART0 (porta TTL, 115200; XIAO ESP32S3: USB nativa), uno per riga:
  *   INFO
  *   (<liv> = livello in dB teorici, 0 = massimo, es. -7.6dB; oppure ampiezza 1..480)
  *   CW   <MHz> <liv> <secondi>              portante sull'LO
@@ -40,7 +40,6 @@
 #include <math.h>
 #include <string.h>
 #include "driver/gpio.h"
-#include "driver/uart.h"
 #include "esp_chip_info.h"
 #include "esp_cpu.h"
 #include "esp_heap_caps.h"
@@ -49,7 +48,6 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "hal/uart_ll.h"
 #include "soc/gpio_reg.h"
 #include "rf_s3.h"
 #include "sym_player.h"
@@ -66,6 +64,7 @@
 #include "rx_s3.h"
 #include "s2rx.h"
 #include "parrot_pip.h"
+#include "console.h"
 #include "overlay.h"
 #include "esp_rom_crc.h"
 #include "esp32s3/rom/cache.h"
@@ -104,6 +103,7 @@ typedef struct {
     uint32_t sr;
     uint32_t n;                      /* QSO ricevuti dall'accensione (la memoria RTC resta con i riavvii software) */
     float rf_dbfs;                   /* potenza media della cattura in dBFS (guadagno RX fisso, non tarata in dBm) */
+    uint8_t shortf;                  /* frame corti ricevuti: la risposta li usa anche lei */
     uint32_t crc;
 } parrot_state_t;
 static bool beacon_pause(const pdx_cfg_t *c, uint32_t s);
@@ -144,7 +144,7 @@ static void reboot_and_run(const char *cmd)
     rtc_pending.crc = pending_crc(&rtc_pending);
     printf("RIAVVIO per TX con la radio pulita (access point o ricezione usati): poi \"%s\"\n", cmd);
     fflush(stdout);
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+    con_wait_tx(pdMS_TO_TICKS(200));
     /* la PSRAM non inizializzata (riquadro del QSO) va scritta dalla cache prima del riavvio: senza, alla risposta il
      * riquadro risultava non valido (RF del 06/11) */
     Cache_WriteBack_All();
@@ -165,31 +165,29 @@ static bool take_pending(char *cmd, size_t n)
 
 /* durante la TX gli interrupt del core 0 sono mascherati e il byte resta nella FIFO hardware; fuori dalla TX il driver
  * lo sposta subito nel suo buffer: vanno guardati tutti e due */
-static bool uart_has_byte(void)
+static bool con_has_byte(void)
 {
-    size_t n = 0;
-    uart_get_buffered_data_len(UART_NUM_0, &n);
-    return n > 0 || uart_ll_get_rxfifo_len(UART_LL_GET_HW(UART_NUM_0)) > 0;
+    return con_buffered() > 0 || con_rx_pending_hw();
 }
 
 /* dopo uno stop: il carattere che ha fermato la TX (e quanto arriva subito dopo) non deve finire nel comando seguente */
 static void discard_input(void)
 {
     vTaskDelay(pdMS_TO_TICKS(200));
-    uart_flush_input(UART_NUM_0);
+    con_flush_input();
 }
 
-/* stop durante la TX: solo registri (FIFO della UART, pin BOOT), pochi cicli e nessun accesso alla memoria. Con gli
+/* stop durante la TX: solo registri (FIFO della porta seriale, pin BOOT), pochi cicli e nessun accesso alla memoria. Con gli
  * interrupt del core 0 mascherati il carattere resta nella FIFO hardware. */
 static IRAM_ATTR bool tx_stop_hw(void)
 {
-    return uart_ll_get_rxfifo_len(UART_LL_GET_HW(UART_NUM_0)) > 0 || !(REG_READ(GPIO_IN_REG) & BIT(BOOT_GPIO));
+    return con_rx_pending_hw() || !(REG_READ(GPIO_IN_REG) & BIT(BOOT_GPIO));
 }
 
 /* stop fuori dalla TX (attese, pause): un carattere sulla seriale oppure il pulsante BOOT */
 static bool stop_requested(void)
 {
-    return uart_has_byte() || gpio_get_level(BOOT_GPIO) == 0;
+    return con_has_byte() || gpio_get_level(BOOT_GPIO) == 0;
 }
 
 /* fine di una TX (o del ciclo): la radio è nello stato del modulatore e l'access point acceso subito dopo non riceve
@@ -213,8 +211,8 @@ static void run_beacon(void)
     if (!strcmp(snap.callsign, "NOCALL")) printf("ATTENZIONE nominativo non impostato (NOCALL)\n");
     printf("BEACON avvio (un tasto o BOOT per fermare)\n");
     fflush(stdout);
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
-    uart_flush_input(UART_NUM_0);
+    con_wait_tx(pdMS_TO_TICKS(100));
+    con_flush_input();
     const uint32_t n = pdx_beacon_run(&snap, tx_stop_hw, beacon_pause);
     while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));   /* attende il rilascio di BOOT */
     discard_input();
@@ -258,8 +256,8 @@ static bool tx_common(const char *f_arg, int amp, uint32_t secs, uint32_t *fkhz)
 static void tx_start_note(void)
 {
     fflush(stdout);
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
-    uart_flush_input(UART_NUM_0);
+    con_wait_tx(pdMS_TO_TICKS(100));
+    con_flush_input();
 }
 
 static void tx_end_note(uint32_t ms, bool stats)
@@ -279,7 +277,7 @@ static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_
 {
     pdx_cam_set_flip(cfg.cam_flip & PDX_CAMFLIP_H, cfg.cam_flip & PDX_CAMFLIP_V);
     const uint8_t *usr_img = pdx_media_map(PDX_MEDIA_IMG_USR, NULL);
-    *lc = (pdx_live_cfg_t){.sr = pdx_cfg_sr(&cfg), .fec = fec, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
+    *lc = (pdx_live_cfg_t){.sr = pdx_cfg_sr(&cfg), .fec = fec, .shortf = pdx_cfg_sr(&cfg) < PDX_SR_SHORTF, .pilots = true, .amp = amp, .dci = cfg.dci, .dcq = cfg.dcq,
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
                            .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
                            .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0),
@@ -308,7 +306,7 @@ static void media_upload(int argc, char **argv)
         const uint32_t want = total - pos < sizeof(blk) ? total - pos : sizeof(blk);
         uint32_t got = 0;
         while (got < want) {
-            const int k = uart_read_bytes(UART_NUM_0, blk + got, want - got, pdMS_TO_TICKS(5000));
+            const int k = con_read(blk + got, want - got, pdMS_TO_TICKS(5000));
             if (k <= 0) { e = "tempo scaduto in ricezione"; break; }
             got += (uint32_t)k;
         }
@@ -371,6 +369,7 @@ static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
     snprintf(parrot.fec, sizeof(parrot.fec), "%s", rep->fec);
     parrot.mer = rep->mer_db; parrot.d = rep->d_margin_db; parrot.foff_hz = rep->freq_hz; parrot.sr = rep->sr;
     parrot.rf_dbfs = rf_dbfs;
+    parrot.shortf = rep->shortf;
     parrot.n = n;
     parrot.crc = parrot_crc();
     parrot_texts();
@@ -406,8 +405,12 @@ const char *pdx_parrot_json(void)
 
 /* ascolto sulla frequenza del beacon per listen_s secondi: occhiate di 60 ms allo spettro; con un segnale, attesa
  * stab_s, cattura di 2 s e decodifica. 1 = QSO letto (in "parrot"), 0 = nessun QSO, -1 = fermato o errore.
- * Dopo l'ascolto la radio non è più nello stato del modulatore: la TX seguente richiede un riavvio. */
+ * Dopo l'ascolto la radio non è più nello stato del modulatore: la TX seguente richiede un riavvio.
+ * Occhiate alterne: larga (LO sulla frequenza, SR da 100 kS in su, come prima) e stretta (LO 80 kHz sopra, SR 40..66 kS
+ * di ESP32-ATV: la gobba della radio attorno al LO coprirebbe il segnale); un segnale stretto si cattura con il LO
+ * spostato per 4 s a 500 ksps. */
 #define PARROT_DET_DB 10.0f   /* soglia del rilevatore (06/11: 8 dB dava falsi allarmi a 8,4 dB; segnali veri 20-27 dB) */
+#define PARROT_NARROW_OFS 80000u  /* LO sopra un segnale stretto (come ESP32-ATV, CHANGELOG 0.18) */
 static void parrot_on_call(const char *call)
 {
     printf("PARROT nominativo %s acquisito: LED verde veloce fino alla risposta\n", call);
@@ -415,7 +418,7 @@ static void parrot_on_call(const char *call)
     pdx_led_qso();
 }
 
-static int parrot_listen(unsigned listen_s, unsigned stab_s)
+static int parrot_listen_run(unsigned listen_s, unsigned stab_s)
 {
     if (!parrot_bufs()) { printf("ERR memoria\n"); return -1; }
     s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call, parrot_cst, PARROT_CST_MAX};
@@ -424,16 +427,22 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
     const uint32_t lo = cfg.freq_khz * 1000u;
     const char *e = pdx_rx_start(lo, PDX_RX_GAIN_DEF);
     if (e) { printf("ERR RX %s\n", e); return -1; }
+    const uint32_t lo_eff = pdx_rx_lo_hz();                  /* riferimento dello scostamento di frequenza del QSO */
+    s2rx_set_board_capture(true);
     printf("PARROT ascolto su %.3f MHz per %u s (un tasto o BOOT per fermare)\n", cfg.freq_khz / 1000.0, listen_s);
     fflush(stdout);
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
-    uart_flush_input(UART_NUM_0);
+    con_wait_tx(pdMS_TO_TICKS(100));
+    con_flush_input();
     const int64_t t_end = esp_timer_get_time() + (int64_t)listen_s * 1000000;
     uint32_t looks = 0, fails = 0;
     float best_pk = 0, best_fc = 0, best_w = 0;              /* diagnosi (06/11): occhiata migliore sotto la soglia */
     int64_t t_diag = esp_timer_get_time() + 5000000;
     const int64_t t_warm = esp_timer_get_time() + 1500000;
     pdx_rx_stream_stats_t st;
+    /* livello digitale (13/11, ESP32-ATV a pochi metri): con lo shift fisso a 8 un segnale forte satura l'uscita int8
+     * (87 % dei valori), lo spettro si appiattisce e il rilevatore vede 9 dB invece di 21. Il guadagno RF non cambia
+     * nulla (l'ADC non satura): si alza lo shift finché la saturazione sparisce, si riabbassa con segnali deboli */
+    unsigned shift = 8;
     while (esp_timer_get_time() < t_end) {
         if (stop_requested()) { printf("PARROT ascolto fermato\n"); return -1; }
         if (esp_timer_get_time() > t_diag) {
@@ -444,9 +453,19 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
             t_diag = esp_timer_get_time() + 5000000;
         }
         /* radio risintonizzata a ogni occhiata: nelle pause la catena RX perde la configurazione (RF del 04/11) */
-        if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) ||
-            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st)) { fails++; vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        const bool nar = looks & 1u;                         /* occhiata stretta: LO spostato, gobba ignorata */
+        const uint32_t lo_look = nar ? lo + PARROT_NARROW_OFS : lo;
+        s2rx_set_narrow(nar);
+        if (pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) ||
+            pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, shift, &st)) { fails++; vTaskDelay(pdMS_TO_TICKS(100)); continue; }
         looks++;
+        if (st.clipped > st.samples_out / 25u && shift < 14) {    /* oltre il 2 % dei valori I/Q saturati */
+            shift += 2;
+            printf("PARROT segnale forte (rms %.0f, saturati %u): shift %u\n", (double)st.rms, (unsigned)st.clipped, shift);
+            fflush(stdout);
+            continue;
+        }
+        if (shift > 8 && st.rms < 12.0f) shift--;
         /* riscaldamento (06/11): nel primo secondo dopo l'accensione della RX lo spettro ha gobbe finte (8-11 dB) */
         if (esp_timer_get_time() < t_warm) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
         float fc = 0, w = 0, pk = 0;
@@ -457,8 +476,8 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
         }
         {   /* seconda occhiata di conferma (06/11): un disturbo a +110 kHz largo 104 kHz faceva perdere attesa e cattura */
             float fc2 = 0, w2 = 0, pk2 = 0;
-            const bool ok2 = !pdx_rx_start(lo, PDX_RX_GAIN_DEF) &&
-                             !pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, 8, &st) &&
+            const bool ok2 = !pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) &&
+                             !pdx_rx_stream((int8_t *)rx_buf, 60000u, 16, 3, shift, &st) &&
                              s2rx_detect((const int8_t *)rx_buf, st.samples_out, 1e6f, &env, 6.0f, &fc2, &w2, &pk2) &&
                              fabsf(fc2 - fc) < 30e3f && w2 > 0.7f * w && w2 < 1.4f * w;
             if (!ok2) {
@@ -469,20 +488,25 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
                 continue;
             }
         }
-        printf("PARROT segnale dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
-               (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk, stab_s);
+        printf("PARROT segnale%s dopo %u occhiate: %+.1f kHz, largo %.0f kHz, %.1f dB sul rumore; attesa %u s\n",
+               nar ? " stretto (LO +80 kHz)" : "", (unsigned)looks, (double)fc / 1000.0, (double)w / 1000.0, (double)pk,
+               stab_s);
         fflush(stdout);
         vTaskDelay(pdMS_TO_TICKS(stab_s * 1000u));
-        if (pdx_rx_start(lo, PDX_RX_GAIN_DEF) || pdx_rx_stream((int8_t *)rx_buf, 2000000u, 16, 3, 8, &st)) continue;
-        rx_len = 2u * st.samples_out; rx_fs = 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
+        /* stretto: 4 s a 500 ksps (frame normale da 0,83 s a 40 kS); largo: 2 s a 1 Msps come prima */
+        if (pdx_rx_start(lo_look, PDX_RX_GAIN_DEF) ||
+            pdx_rx_stream((int8_t *)rx_buf, 2000000u, nar ? 32 : 16, 3, shift, &st)) continue;
+        rx_len = 2u * st.samples_out; rx_fs = nar ? 500000u : 1000000u; rx_lo = pdx_rx_lo_hz(); rx_board = true;
         s2rx_set_board_capture(true);
         pdx_led_idle();                                      /* decodifica: radio non in ascolto */
-        printf("PARROT cattura di 2 s: %u campioni, motore oltre il lettore %u volte; decodifica...\n",
-               (unsigned)st.samples_out, (unsigned)st.overruns);
+        printf("PARROT cattura di %u s: %u campioni a %u ksps, motore oltre il lettore %u volte; decodifica...\n",
+               nar ? 4u : 2u, (unsigned)st.samples_out, (unsigned)(rx_fs / 1000u), (unsigned)st.overruns);
         fflush(stdout);
-        s2rx_run((const int8_t *)rx_buf, st.samples_out, 1e6f, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
+        s2rx_run((const int8_t *)rx_buf, st.samples_out, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
+        rep.freq_hz += (float)(int32_t)(rx_lo - lo_eff);    /* scostamento dalla frequenza del beacon, non dal LO spostato */
         if (rep.call[0]) {
-            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, st.samples_out));
+            /* dBFS dell'uscita a shift 8 (scala di prima): ogni passo di shift vale 6 dB */
+            parrot_store(&rep, capture_dbfs((const int8_t *)rx_buf, st.samples_out) + 6.02f * (float)(shift - 8u));
             pdx_led_qso();                  /* verde veloce fino alla risposta (già acceso da on_call a metà decodifica) */
             return 1;
         }
@@ -490,6 +514,13 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
     }
     printf("PARROT fine dell'ascolto: nessun QSO (%u occhiate)\n", (unsigned)looks);
     return 0;
+}
+
+static int parrot_listen(unsigned listen_s, unsigned stab_s)
+{
+    const int r = parrot_listen_run(listen_s, stab_s);
+    s2rx_set_narrow(false);                                  /* RXDEC e RXSTREAM restano come prima */
+    return r;
 }
 
 /* pausa del ciclo del beacon: con il Parrot acceso si ascolta per tutta la pausa; poi si riavvia (radio pulita) per
@@ -695,6 +726,7 @@ static void handle_cmd(char *line)
         if (argc < 4) { printf("ERR ESPLAY <MHz> <amp> <s> [fec] [short] [nopilots] [cam|pip|img|live|user]\n"); return; }
         pdx_live_cfg_t lc;
         live_cfg_from(&lc, PDX_LV_ES, 0, pdx_parse_amp(argv[2]), "3/4");
+        lc.shortf = false;                                   /* prova: frame corti solo con "short" */
         for (int i = 4; i < argc; i++) {
             if (!strcasecmp(argv[i], "short")) lc.shortf = true;
             else if (!strcasecmp(argv[i], "nopilots")) lc.pilots = false;
@@ -750,12 +782,12 @@ static void handle_cmd(char *line)
         }
         printf("RXCAP fine (la prossima TX riavvia la scheda per riportare la radio allo stato del modulatore)\n");
 
-    } else if (!strcasecmp(argv[0], "RXSTREAM")) {           /* RXSTREAM <MHz> <guadagno> <ms> [decim 8|16] [ordine 2|3] [shift] */
-        if (argc < 4) { printf("ERR RXSTREAM <MHz> <guadagno> <ms> [decim 8|16] [ordine 2|3] [shift]\n"); return; }
+    } else if (!strcasecmp(argv[0], "RXSTREAM")) {           /* RXSTREAM <MHz> <guadagno> <ms> [decim 8|16|32] [ordine 2|3] [shift] */
+        if (argc < 4) { printf("ERR RXSTREAM <MHz> <guadagno> <ms> [decim 8|16|32] [ordine 2|3] [shift]\n"); return; }
         const double mhz = atof(argv[1]);
         const unsigned gain = (unsigned)atoi(argv[2]), ms = (unsigned)atoi(argv[3]);
         const unsigned decim = argc >= 5 ? (unsigned)atoi(argv[4]) : 16, order = argc >= 6 ? (unsigned)atoi(argv[5]) : 3;
-        const unsigned shift = argc >= 7 ? (unsigned)atoi(argv[6]) : decim == 16 ? (order == 3 ? 8u : 4u) : (order == 3 ? 3u : 2u);
+        const unsigned shift = argc >= 7 ? (unsigned)atoi(argv[6]) : decim >= 16 ? (order == 3 ? 8u : 4u) : (order == 3 ? 3u : 2u);
         if (mhz < 2210.0 || mhz > 2790.0 || gain > 127) { printf("ERR LO 2210..2790 MHz, guadagno 0..127\n"); return; }
         const uint32_t fs = PDX_RX_FS_HZ / (decim ? decim : 16);
         const uint32_t n = (uint32_t)((uint64_t)ms * fs / 1000u);
@@ -770,7 +802,7 @@ static void handle_cmd(char *line)
         printf("RXSTREAM LO %u Hz, %u ms a %u S/s (CIC%u /%u, shift %u)\n", (unsigned)pdx_rx_lo_hz(), ms, (unsigned)fs,
                order, decim, shift);
         fflush(stdout);
-        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
+        con_wait_tx(pdMS_TO_TICKS(100));
         pdx_rx_stream_stats_t st;
         e = pdx_rx_stream((int8_t *)rx_buf, n, decim, order, shift, &st);
         if (e) {
@@ -827,25 +859,25 @@ static void handle_cmd(char *line)
         const uint32_t crc = esp_rom_crc32_le(0, rx_buf, rx_len);
         printf("RXDUMP %u %08" PRIx32 " %u %u\n", (unsigned)rx_len, crc, (unsigned)rx_fs, (unsigned)rx_lo);
         fflush(stdout);
-        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        con_wait_tx(pdMS_TO_TICKS(200));
         /* RXDUMP [primo blocco] [numero di blocchi]: blocchi da 4 KB, ognuno A5 5A, indice (u32), lunghezza (u16),
          * dati, CRC32 (u32): il PC richiede solo quelli rovinati */
         const uint32_t nblk = (rx_len + 4095u) / 4096u;
         const uint32_t b0 = argc >= 2 ? (uint32_t)atoi(argv[1]) : 0, bn = argc >= 3 ? (uint32_t)atoi(argv[2]) : nblk;
-        uart_set_baudrate(UART_NUM_0, 230400);
+        con_set_baud(230400);
         vTaskDelay(pdMS_TO_TICKS(800));                       /* il PC cambia velocità */
         for (uint32_t b = b0; b < b0 + bn && b < nblk; b++) {
             const uint32_t off = b * 4096u, k = rx_len - off < 4096u ? rx_len - off : 4096u;
             const uint32_t c = esp_rom_crc32_le(0, rx_buf + off, k);
             const uint8_t h[8] = {0xA5, 0x5A, (uint8_t)b, (uint8_t)(b >> 8), (uint8_t)(b >> 16), (uint8_t)(b >> 24),
                                   (uint8_t)k, (uint8_t)(k >> 8)};
-            uart_write_bytes(UART_NUM_0, (const char *)h, 8);
-            uart_write_bytes(UART_NUM_0, (const char *)rx_buf + off, k);
-            uart_write_bytes(UART_NUM_0, (const char *)&c, 4);
+            con_write((const char *)h, 8);
+            con_write((const char *)rx_buf + off, k);
+            con_write((const char *)&c, 4);
         }
-        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(120000));
+        con_wait_tx(pdMS_TO_TICKS(120000));
         vTaskDelay(pdMS_TO_TICKS(300));
-        uart_set_baudrate(UART_NUM_0, 115200);
+        con_set_baud(115200);
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("\nRXDUMP fine\n");
 
@@ -889,6 +921,7 @@ static void handle_cmd(char *line)
             s2rx_env_t env = {rxdec_alloc, rxdec_free, rxdec_log, rxdec_ms, parrot_on_call, parrot_cst, PARROT_CST_MAX};
             s2rx_report_t rep;
             s2rx_set_board_capture(rx_board);
+            s2rx_set_narrow(rx_board && rx_fs == 500000u);   /* cattura stretta del Parrot (LO spostato) */
             s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, 0, &env, &rep, parrot_ts, RXDEC_TS_MAX, parrot_ok);
             pdx_led_idle();
             if (!rep.call[0]) { printf("PARROT nessun nominativo letto\n"); return; }
@@ -935,10 +968,14 @@ static void handle_cmd(char *line)
         lc.qrk3 = parrot_l3;
         lc.qrk4 = parrot_l4;
         lc.provider = parrot_prov;
-        /* si risponde con il symbol rate della stazione ricevuta (il suo ricevitore è già lì), al massimo 500 kS */
-        { static const uint32_t SRS[] = {125000, 250000, 333000, 500000}; uint32_t b = SRS[0];
-          for (unsigned i = 0; i < 4; i++) if ((parrot.sr > SRS[i] ? parrot.sr - SRS[i] : SRS[i] - parrot.sr) < (parrot.sr > b ? parrot.sr - b : b - parrot.sr)) b = SRS[i];
-          lc.sr = b; }
+        /* si risponde con il symbol rate e la lunghezza dei frame della stazione ricevuta (il suo ricevitore è già lì),
+         * da 40 a 500 kS; sotto 100 kS immagine fissa senza audio (live_tx) */
+        { static const uint32_t SRS[] = {40000, 50000, 66666, 100000, 125000, 250000, 333000, 400000, 500000};
+          const unsigned ns = sizeof(SRS) / sizeof(SRS[0]);
+          uint32_t b = SRS[0];
+          for (unsigned i = 0; i < ns; i++) if ((parrot.sr > SRS[i] ? parrot.sr - SRS[i] : SRS[i] - parrot.sr) < (parrot.sr > b ? parrot.sr - b : b - parrot.sr)) b = SRS[i];
+          lc.sr = b;
+          lc.shortf = parrot.shortf; }
         if (dump) {
             printf("PARROTDUMP %u pacchetti\n", (unsigned)secs);
             const char *e = pdx_live_dump(&lc, secs);
@@ -974,8 +1011,8 @@ static void handle_cmd(char *line)
         pdx_web_stop();
         printf("RXLOAD pronto a 230400 baud\n");
         fflush(stdout);
-        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
-        uart_set_baudrate(UART_NUM_0, 230400);
+        con_wait_tx(pdMS_TO_TICKS(200));
+        con_set_baud(230400);
         static uint8_t *blk;
         if (!blk) blk = heap_caps_malloc(4096 + 12, MALLOC_CAP_SPIRAM);
         if (!blk) { printf("ERR memoria\n"); return; }
@@ -986,27 +1023,27 @@ static void handle_cmd(char *line)
         while (got < nblk && esp_timer_get_time() - t_last < 20000000) {
             /* cerca A5 5A, poi intestazione, dati e CRC */
             uint8_t c;
-            if (uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0xA5) continue;
-            if (uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0x5A) continue;
-            if (uart_read_bytes(UART_NUM_0, blk, 6, pdMS_TO_TICKS(200)) != 6) continue;
+            if (con_read(&c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0xA5) continue;
+            if (con_read(&c, 1, pdMS_TO_TICKS(100)) != 1 || c != 0x5A) continue;
+            if (con_read(blk, 6, pdMS_TO_TICKS(200)) != 6) continue;
             const uint32_t idx = blk[0] | blk[1] << 8 | blk[2] << 16 | (uint32_t)blk[3] << 24, k = blk[4] | blk[5] << 8;
-            if (idx >= nblk || k > 4096u) { const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue; }
-            if (uart_read_bytes(UART_NUM_0, blk, k + 4u, pdMS_TO_TICKS(1000)) != (int)(k + 4u)) {
-                const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue;
+            if (idx >= nblk || k > 4096u) { const char n = 'N'; con_write(&n, 1); continue; }
+            if (con_read(blk, k + 4u, pdMS_TO_TICKS(1000)) != (int)(k + 4u)) {
+                const char n = 'N'; con_write(&n, 1); continue;
             }
             uint32_t crc;
             memcpy(&crc, blk + k, 4);
-            if (esp_rom_crc32_le(0, blk, k) != crc) { const char n = 'N'; uart_write_bytes(UART_NUM_0, &n, 1); continue; }
+            if (esp_rom_crc32_le(0, blk, k) != crc) { const char n = 'N'; con_write(&n, 1); continue; }
             memcpy(rx_buf + idx * 4096u, blk, k);
             if (seen && !seen[idx]) { seen[idx] = 1; got++; }
             const char a = 'K';
-            uart_write_bytes(UART_NUM_0, &a, 1);
+            con_write(&a, 1);
             t_last = esp_timer_get_time();
         }
         free(seen);
-        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        con_wait_tx(pdMS_TO_TICKS(200));
         vTaskDelay(pdMS_TO_TICKS(300));
-        uart_set_baudrate(UART_NUM_0, 115200);
+        con_set_baud(115200);
         vTaskDelay(pdMS_TO_TICKS(100));
         if (got == nblk) { rx_len = len; rx_fs = (uint32_t)atoi(argv[2]); rx_board = false; }
         printf("\nRXLOAD fine: %u/%u blocchi%s\n", (unsigned)got, (unsigned)nblk, got == nblk ? "" : " (incompleto)");
@@ -1024,6 +1061,7 @@ static void handle_cmd(char *line)
         printf("RXDEC %u campioni a %u S/s, PSRAM libera %u KB\n", (unsigned)(rx_len / 2u), (unsigned)rx_fs,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024u));
         s2rx_set_board_capture(rx_board);
+        s2rx_set_narrow(rx_board && rx_fs == 500000u);       /* cattura stretta del Parrot (LO spostato) */
         const uint32_t np = s2rx_run((const int8_t *)rx_buf, rx_len / 2u, (float)rx_fs, argc >= 2 ? (uint32_t)atoi(argv[1]) : 0u,
                                      &env, &rep, ts, RXDEC_TS_MAX, ok);
         printf("RXDEC risultato: rilevato %d SR %u freq %+.1f Hz MER %.1f dB D %.1f frame %d LDPC %d BB %d TS %u (errati %u) "
@@ -1128,7 +1166,7 @@ static void autostart(void)
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0));
+    con_init();
     gpio_config_t boot_pin = {.pin_bit_mask = 1ull << BOOT_GPIO, .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     gpio_config(&boot_pin);
     printf("\n=== ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - %s ===\n", FW_VERSION);
@@ -1158,7 +1196,7 @@ void app_main(void)
             run_beacon();
             used = 0;
         }
-        if (uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(50)) != 1) continue;
+        if (con_read(&c, 1, pdMS_TO_TICKS(50)) != 1) continue;
         if (c == '\r') continue;
         if (c != '\n') {
             if (used < sizeof(line) - 1) line[used++] = (char)c;

@@ -21,6 +21,10 @@ typedef struct {
 
 static esp_err_t cam_start(framesize_t size)
 {
+#if CONFIG_PDX_BOARD_XIAO_S3
+    (void)size;
+    return ESP_ERR_NOT_SUPPORTED;                                    /* XIAO: nessuna camera */
+#endif
     camera_config_t c = {
         .pin_pwdn = -1, .pin_reset = -1, .pin_xclk = 15, .pin_sccb_sda = 4, .pin_sccb_scl = 5,
         .pin_d7 = 16, .pin_d6 = 17, .pin_d5 = 18, .pin_d4 = 12, .pin_d3 = 10, .pin_d2 = 8, .pin_d1 = 9, .pin_d0 = 11,

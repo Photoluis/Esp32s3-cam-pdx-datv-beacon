@@ -52,7 +52,7 @@ small{color:var(--muted)}
 <section><h2 data-t="s_tx"></h2>
 <div class="g">
 <label><span data-t="freq"></span><input name="freq" inputmode="decimal" id="freq"></label>
-<label>Symbol rate (kS)<select name="sr" id="sr"><option>125</option><option>250</option><option>333</option><option>500</option><option value="1000" data-t="sr1000">1000</option></select></label>
+<label>Symbol rate (kS)<select name="sr" id="sr"><option>40</option><option>50</option><option>66</option><option>100</option><option>125</option><option>250</option><option>333</option><option>500</option><option value="1000" data-t="sr1000">1000</option></select></label>
 <label><span data-t="fec"></span><select name="fec" id="fec"><option>1/2</option><option>3/5</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>8/9</option><option>9/10</option></select></label>
 <label><span data-t="level"></span><span style="display:flex;align-items:center;gap:10px"><input name="level" id="level" type="range" min="-40" max="-5" step="0.5" style="flex:1;padding:0;accent-color:var(--acc)"><output id="levelv" style="min-width:64px;text-align:end;font-size:16px;color:var(--text)">–</output></span></label>
 <label>QRZ<input name="call" id="callin" autocapitalize="characters"></label>
@@ -440,6 +440,7 @@ function fill(c){lastCfg=c;showFinal();for(const k of['freq','sr','fec','level',
 async function status(full){
  try{const r=await fetch('/api/status');const s=await r.json();
   $('fw').textContent=s.fw;lastMode=s.mode;$('mode').textContent=MODES[s.mode]?t(MODES[s.mode]):s.mode;$('band').textContent=s.fmin+'–'+s.fmax;
+  if(s.nocam)for(const k of['cam','cammode','pipbg','camh','camv'])$(k).closest('label').style.display='none';
   lastMedia=s.media;for(const k of['es_std','img_std','es_usr','img_usr'])$('m_'+k).textContent=media(s.media[k]);
   const mx=(s.media.es_max/1048576).toFixed(0);if(mx!=esMax){esMax=mx;setLang(L)}
   $('temp').textContent=s.temp>-90?s.temp.toFixed(1)+' °C':'–';

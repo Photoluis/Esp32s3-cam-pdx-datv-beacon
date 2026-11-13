@@ -20,7 +20,7 @@
 #define NVS_NS  "beacon"
 #define NVS_KEY "cfg"
 
-static const uint32_t SR_TAB[PDX_SR_N] = {333000, 125000, 250000, 500000, 1000000};
+static const uint32_t SR_TAB[PDX_SR_N] = {333000, 125000, 250000, 500000, 1000000, 40000, 50000, 66666, 100000};
 uint32_t pdx_cfg_sr(const pdx_cfg_t *c) { return SR_TAB[c->sr_sel < PDX_SR_N ? c->sr_sel : PDX_SR_333]; }
 
 int pdx_level_to_amp(double db)
@@ -54,6 +54,9 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .locator = "",         /* nessun locatore di fabbrica (come NOCALL): ognuno imposta il proprio */
         .parrot_on = 0, .parrot_reply = 60, .parrot_stab = 3,
     };
+#if CONFIG_PDX_BOARD_XIAO_S3
+    c->cam_s = 0;                                       /* XIAO: nessuna camera, solo monoscopio */
+#endif
 }
 
 uint64_t pdx_cfg_final_khz(const pdx_cfg_t *c, uint32_t if_khz, bool *inverted)
@@ -126,6 +129,9 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     /* la prima v1.2.0-dev salvava questi byte a zero (erano riservati) */
     if (tmp.parrot_reply < 10 || tmp.parrot_reply > 250) tmp.parrot_reply = 60;
     if (tmp.parrot_stab > 30) tmp.parrot_stab = 3;
+#if CONFIG_PDX_BOARD_XIAO_S3
+    tmp.cam_s = 0;
+#endif
     *c = tmp;
     return true;
 }
@@ -154,6 +160,9 @@ void pdx_cfg_print(const pdx_cfg_t *c)
     if (pdx_cfg_sr(c) > PDX_LIVE_SR_MAX && (c->cam_s || c->mono_src == PDX_MONO_USR_IMAGE || c->mono_src == PDX_MONO_LIVE))
         printf("ATTENZIONE a %u kS camera, PiP e immagine non sono disponibili: si trasmette il monoscopio standard\n",
                (unsigned)(pdx_cfg_sr(c) / 1000u));
+    if (pdx_cfg_sr(c) < 125000u && c->mono_s && (c->mono_src == PDX_MONO_STD || c->mono_src == PDX_MONO_USR_VIDEO))
+        printf("ATTENZIONE a %u kS il monoscopio precodificato non sta nel TS: monosrc LIVE o IMAGE (immagine fissa, "
+               "senza audio)\n", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("CFG SR %u kS | ", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
            "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s | camera%s%s\n",
@@ -219,7 +228,12 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
     } else if (!strcasecmp(key, "mono") || !strcasecmp(key, "cam") || !strcasecmp(key, "pause")) {
         if (!parse_int(value, 0, 3600, &v)) return "secondi 0..3600";
         if (!strcasecmp(key, "mono")) c->mono_s = (uint16_t)v;
-        else if (!strcasecmp(key, "cam")) c->cam_s = (uint16_t)v;
+        else if (!strcasecmp(key, "cam")) {
+#if CONFIG_PDX_BOARD_XIAO_S3
+            if (v) return "nessuna camera su questa scheda (XIAO): cam 0";
+#endif
+            c->cam_s = (uint16_t)v;
+        }
         else c->pause_s = (uint16_t)v;
     } else if (!strcasecmp(key, "wait")) {
         if (!parse_int(value, 10, 600, &v)) return "wait 10..600 s";
@@ -233,11 +247,11 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
                 return "QRZ: lettere, cifre, / e -";
         strcpy(c->callsign, value);
         for (char *p = c->callsign; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-    } else if (!strcasecmp(key, "sr")) {                 /* kS/s: 125 250 333 500 1000 */
-        if (!parse_int(value, 1, 1000, &v)) return "sr 125 250 333 500 1000 (kS)";
+    } else if (!strcasecmp(key, "sr")) {                 /* kS/s: 40 50 66 100 125 250 333 500 1000 */
+        if (!parse_int(value, 1, 1000, &v)) return "sr 40 50 66 100 125 250 333 500 1000 (kS)";
         int k = 0;
-        while (k < PDX_SR_N && SR_TAB[k] != (uint32_t)v * 1000u) k++;
-        if (k == PDX_SR_N) return "sr 125 250 333 500 1000 (kS)";
+        while (k < PDX_SR_N && SR_TAB[k] / 1000u != (uint32_t)v) k++;          /* 66 = 66666 S/s */
+        if (k == PDX_SR_N) return "sr 40 50 66 100 125 250 333 500 1000 (kS)";
         c->sr_sel = (uint8_t)k;
     } else if (!strcasecmp(key, "loc")) {                /* "" o "-" = nessun locatore */
         if (!value[0] || !strcmp(value, "-")) c->locator[0] = 0;
@@ -330,7 +344,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
 {
     bool inv;
     const uint64_t fin = pdx_cfg_final_khz(c, c->freq_khz, &inv);
-    pdx_live_cfg_t lc = {.sr = pdx_cfg_sr(c), .fec = c->fec, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
+    pdx_live_cfg_t lc = {.sr = pdx_cfg_sr(c), .fec = c->fec, .shortf = pdx_cfg_sr(c) < PDX_SR_SHORTF, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
                          .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
                          .locator = c->locator,
                          .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};

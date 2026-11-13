@@ -17,6 +17,12 @@
 #include "media_store.h"
 #include "rf_s3.h"
 
+#if CONFIG_PDX_BOARD_XIAO_S3
+#define NOCAM_JSON "true"            /* la pagina nasconde le voci della camera */
+#else
+#define NOCAM_JSON "false"
+#endif
+
 extern const char index_html_start[] asm("_binary_index_html_start");
 extern const char index_html_end[] asm("_binary_index_html_end");
 
@@ -98,12 +104,13 @@ static esp_err_t h_status(httpd_req_t *r)
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
              "\"media\":{\"es_std\":\"%s\",\"es_usr\":\"%s\",\"img_std\":\"%s\",\"img_usr\":\"%s\","
-             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f,\"qso\":%s}",
+             "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f,\"qso\":%s,\"nocam\":%s}",
              fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, md[0], md[1], md[2], md[3],
              pdx_media_map(PDX_MEDIA_ES_USR, NULL) ? "true" : "false",
              pdx_media_map(PDX_MEDIA_IMG_USR, NULL) ? "true" : "false", (unsigned)PDX_ES_USR_SIZE,
              (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX,
-             isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read(), pdx_parrot_json());
+             isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read(), pdx_parrot_json(),
+             NOCAM_JSON);
     return send_json(r, b);
 }
 

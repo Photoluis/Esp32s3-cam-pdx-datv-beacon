@@ -378,6 +378,8 @@ typedef struct {
     int32_t dc;                          /* continua nel dominio dei pettini */
     uint32_t carry[16], nc, k, shift;
     int8_t *out;                         /* I: base + 0, Q: base + 1, passo 2 */
+    uint32_t hb, ph;                     /* decimazione 32: mezza banda /2 dopo il CIC (500 ksps), fase 0/1 */
+    int32_t d[6];                        /* linea di ritardo della mezza banda, d[0] = campione precedente */
 } ch_t;
 
 #define EXT_I(w) ((uint32_t)(((int32_t)((w) << 22)) >> 22))
@@ -408,16 +410,55 @@ static IRAM_ATTR __attribute__((noinline)) void ch16_i(ch_t *c, const uint32_t *
 /* Q negato: coniugato, lo spettro del motore è invertito */
 static IRAM_ATTR __attribute__((noinline)) void ch16_q(ch_t *c, const uint32_t *p, uint32_t nblk) { CH16_BODY(EXT_Q, 1) }
 
+/* decimazione 32 (Parrot, SR sotto 100 kS): dopo il CIC a 1 Msps una mezza banda a 7 coefficienti
+ * (-1 0 9 16 9 0 -1)/32 e /2: 500 ksps, 4 s di cattura nello stesso buffer. Piatta entro 1 dB fino a 150 kHz,
+ * immagine a 350 kHz -20 dB. Un'uscita ogni due blocchi di 16 coppie. */
+#define CH16_HB_BODY(EXT, NEG)                                                                           \
+    uint32_t a1 = c->a1, a2 = c->a2, a3 = c->a3;                                                        \
+    int8_t *o = c->out + 2u * c->k;                                                                     \
+    while (nblk--) {                                                                                    \
+        a1 += EXT(p[0]) + EXT(p[1]) + EXT(p[2]) + EXT(p[3]);    a2 += a1; a3 += a2;                     \
+        a1 += EXT(p[4]) + EXT(p[5]) + EXT(p[6]) + EXT(p[7]);    a2 += a1; a3 += a2;                     \
+        a1 += EXT(p[8]) + EXT(p[9]) + EXT(p[10]) + EXT(p[11]);  a2 += a1; a3 += a2;                     \
+        a1 += EXT(p[12]) + EXT(p[13]) + EXT(p[14]) + EXT(p[15]); a2 += a1; a3 += a2;                    \
+        p += 16;                                                                                        \
+        const uint32_t cc = a3 - c->z1; c->z1 = a3;                                                     \
+        const uint32_t ee = cc - c->z2; c->z2 = cc;                                                     \
+        const uint32_t ff = ee - c->z3; c->z3 = ee;                                                     \
+        const int32_t v = (int32_t)ff - c->dc;                                                          \
+        if (c->ph) {                                                                                    \
+            int32_t y = (16 * c->d[2] + 9 * (c->d[1] + c->d[3]) - (v + c->d[5])) >> (5 + c->shift);     \
+            if (NEG) y = -y;                                                                            \
+            y = y > 127 ? 127 : y < -127 ? -127 : y;                                                    \
+            *o = (int8_t)y;                                                                             \
+            o += 2;                                                                                     \
+            c->k++;                                                                                     \
+        }                                                                                               \
+        c->ph ^= 1u;                                                                                    \
+        c->d[5] = c->d[4]; c->d[4] = c->d[3]; c->d[3] = c->d[2];                                        \
+        c->d[2] = c->d[1]; c->d[1] = c->d[0]; c->d[0] = v;                                              \
+    }                                                                                                   \
+    c->a1 = a1; c->a2 = a2; c->a3 = a3;
+
+static IRAM_ATTR __attribute__((noinline)) void ch32_i(ch_t *c, const uint32_t *p, uint32_t nblk) { CH16_HB_BODY(EXT_I, 0) }
+static IRAM_ATTR __attribute__((noinline)) void ch32_q(ch_t *c, const uint32_t *p, uint32_t nblk) { CH16_HB_BODY(EXT_Q, 1) }
+
+static IRAM_ATTR void ch_blocks(ch_t *c, const uint32_t *p, uint32_t nblk, bool q)
+{
+    if (c->hb) { if (q) ch32_q(c, p, nblk); else ch32_i(c, p, nblk); }
+    else { if (q) ch16_q(c, p, nblk); else ch16_i(c, p, nblk); }
+}
+
 static IRAM_ATTR __attribute__((noinline)) void ch_feed(ch_t *c, const uint32_t *p, uint32_t n, bool q)
 {
     if (c->nc) {
         while (c->nc < 16 && n) { c->carry[c->nc++] = *p++; n--; }
         if (c->nc < 16) return;
-        if (q) ch16_q(c, c->carry, 1); else ch16_i(c, c->carry, 1);
+        ch_blocks(c, c->carry, 1, q);
         c->nc = 0;
     }
     const uint32_t nb = n / 16u;
-    if (nb) { if (q) ch16_q(c, p, nb); else ch16_i(c, p, nb); }
+    if (nb) ch_blocks(c, p, nb, q);
     p += nb * 16u;
     n -= nb * 16u;
     while (n--) c->carry[c->nc++] = *p++;
@@ -560,14 +601,15 @@ uint32_t rx_diag[12];
 const char *pdx_rx_stream(int8_t *out, uint32_t n_out, unsigned decim, unsigned order, unsigned shift,
                           pdx_rx_stream_stats_t *st)
 {
-    if (decim != 8 && decim != 16) return "decimazione 8 o 16";
+    if (decim != 8 && decim != 16 && decim != 32) return "decimazione 8, 16 o 32";
     if (order != 2 && order != 3) return "ordine del CIC 2 o 3";
+    if (decim == 32 && order != 3) return "decimazione 32 solo con il CIC di ordine 3";
     if (shift > 24) return "shift 0..24";
     memset(st, 0, sizeof(*st));
     static dec_t d;
     memset(&d, 0, sizeof(d));
     d.r2 = decim / 4u; d.order = order; d.shift = shift; d.n_out = n_out; d.out = (uint16_t *)out;
-    d.fast = decim == 16 && order == 3;
+    d.fast = decim >= 16 && order == 3;
     if (d.fast) {                        /* continua del ricevitore: 300 us nel banco A prima della cattura */
         int32_t mi, mq;
         rx_dc(&mi, &mq);
@@ -577,6 +619,7 @@ const char *pdx_rx_stream(int8_t *out, uint32_t n_out, unsigned decim, unsigned 
         memset((void *)&job, 0, sizeof(job));
         ch_i.dc = mi / 4; ch_i.shift = shift; ch_i.out = out;
         job.q.dc = mq / 4; job.q.shift = shift; job.q.out = out + 1;
+        ch_i.hb = job.q.hb = decim == 32;
         if (xTaskCreatePinnedToCore(core1_task, "rx_q", 3072, NULL, configMAX_PRIORITIES - 1, NULL, 1) != pdPASS)
             return "task del core 1 non creato";
         while (job.ready != 1) vTaskDelay(1);

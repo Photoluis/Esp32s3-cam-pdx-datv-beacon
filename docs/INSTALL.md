@@ -90,6 +90,23 @@ python make_bg.py -o out/bg_std.bin
 python -m esptool --port COM3 write-flash 0x810000 out/mono_es.bin 0xC10000 out/bg_std.bin
 ```
 
+### Seeed XIAO ESP32S3 Plus (no camera)
+
+The XIAO ESP32S3 Plus (ESP32-S3R8, 8 MB octal PSRAM, 16 MB flash; the plain XIAO ESP32S3 has only 8 MB flash and is not supported) runs the beacon and the Parrot without a camera:
+test card, custom image, live bars and the Parrot reply work; camera and PiP are hidden on the web page. Differences:
+serial console on the **native USB** (no CH340, `/dev/ttyACM0` on Linux), STOP on the **BOOT** button (GPIO0), status
+LED = the yellow user LED (GPIO21), told apart by its rhythm: on = receiving, a short blink every 2 s = standby,
+blinking 1–5 Hz = TX, fast blinking = callsign acquired / activity. Antenna on the U.FL connector.
+
+Browser installer: the second button on the installer page, **Install XIAO (dev)** (Plus only: the partition table
+needs 16 MB of flash). From source:
+```
+cd firmware
+idf.py -B build_xiao -D SDKCONFIG=build_xiao/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.xiao" build
+idf.py -B build_xiao -p /dev/ttyACM0 flash monitor
+```
+Test card and backgrounds are written as above (`--port /dev/ttyACM0`).
+
 ## First set-up
 
 1. After **RST** the board starts the configuration access point: Wi-Fi **`NOCALL-BEACON`**, password

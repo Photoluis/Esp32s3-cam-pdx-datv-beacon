@@ -48,6 +48,8 @@ typedef struct {
     uint8_t pmt_ver;                     /* versione del PMT: cambia a ogni segmento */
     uint64_t t0_90k;                     /* tempo del primo pacchetto: prosegue da un segmento all'altro */
     bool vqueue;                         /* video dalla coda (camera) invece che dal file ES */
+    bool no_audio;                       /* TS senza audio (PMT con il solo video): SR sotto 100 kS */
+    bool lowrate;                        /* TS sotto 150 kbit/s: PAT/PMT ogni 0,5 s e PCR ogni 100 ms */
     pdx_vq_entry_t vq[PDX_VQ_LEN];
     volatile uint32_t vq_r, vq_w;
     bool vq_sending;
@@ -63,7 +65,8 @@ typedef struct {
     uint32_t stats_null, stats_video, stats_audio;
 } pdx_mux_t;
 
-/* apre il file ES mappato (audio sempre dal file; video dal file oppure, con vqueue, dalla coda); NULL se riuscito */
+/* apre il file ES mappato (audio dal file, se non tolto con no_audio dopo l'apertura; video dal file oppure, con vqueue,
+ * dalla coda); NULL se riuscito */
 const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider,
                          bool vqueue);
 uint64_t pdx_mux_now_90k(const pdx_mux_t *m);           /* tempo del multiplexer (pacchetti emessi) */

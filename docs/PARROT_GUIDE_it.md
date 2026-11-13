@@ -22,8 +22,8 @@ Apri la pagina web (rete Wi-Fi `<QRZ>-BEACON`, http://192.168.4.1), sezione **Pa
 In **Ciclo del beacon** imposta una **pausa di almeno 30 s** (35–40 s è più comodo): il beacon ascolta solo nella
 pausa. Poi **Applica e salva** e **AVVIA BEACON**.
 
-L'altra stazione deve trasmettere **DVB-S2 QPSK** sulla **frequenza del beacon (±200 kHz)** con symbol rate **fino a
-500 kS**. Qualunque FEC e tipo di frame. Da seriale: `SET parrot on`, `SET preply 40`, `SET pstab 5`, `SAVE`.
+L'altra stazione deve trasmettere **DVB-S2 QPSK** sulla **frequenza del beacon (±200 kHz)** con symbol rate **da 40 a
+500 kS** (40, 50, 66, 100, 125, 250, 333, 400, 500 kS, per esempio da ESP32-ATV). Qualunque FEC e tipo di frame. Da seriale: `SET parrot on`, `SET preply 40`, `SET pstab 5`, `SAVE`.
 
 ## 2. Tutorial: leggere lo schema del ciclo
 
@@ -109,10 +109,24 @@ Anche un carattere qualsiasi sulla seriale ferma la trasmissione.
   deboli vengono ignorati (sarebbero comunque al limite della decodifica).
 - A **500 kS** il MER letto dal beacon è qualche dB più basso che a 333 kS (attenuazione ai bordi del filtro di
   ricezione della scheda); il margine D dice se il segnale era davvero decodificabile.
-- Segnali fortissimi (RF vicino a 0 dBFS) possono saturare il ricevitore: allontanati o riduci la potenza.
+- **Sotto 100 kS** (40–66 kS) il beacon ascolta a turno sulla propria frequenza e con il LO 80 kHz sopra (il
+  ricevitore ha una gobba di ±25 kHz attorno al LO che coprirebbe un segnale stretto) e registra 4 s a 500 ksps invece
+  di 2 s a 1 Msps. Usa i **frame corti** (un frame normale dura 0,83 s a 40 kS). La risposta usa lo stesso symbol rate e
+  la stessa lunghezza dei frame; sotto 100 kS è un'immagine fissa a 2 fps senza audio (il TS porta solo 55–145 kbit/s),
+  con PAT/PMT ogni 0,5 s e PCR ogni 100 ms. Il ricevitore stima la frequenza residua in ogni frame: a 40 kS i pilot
+  distano 37 ms e un trasmettitore che deriva di qualche decina di Hz/s farebbe fallire quasi tutti i frame.
+- **Segnali forti:** il beacon alza da solo il passo del livello digitale (shift da 8 a 14) quando un'occhiata è
+  saturata, così una stazione a pochi metri viene comunque rilevata; l'RF della risposta resta nella scala di prima
+  (può superare 0 dBFS). Il guadagno RF non si può abbassare (su questo ricevitore non ha effetto).
+- Con **ESP32-ATV a livello basso** (AMP attorno a 10) il residuo della portante al centro dello spettro domina e il MER
+  ricevuto cala (4,5 dB misurati): meglio un livello normale e più distanza.
 - Nelle pause con il Parrot acceso l'access point è spento; per cambiare le impostazioni ferma prima il beacon (BOOT).
 - Provato in aria il 06/11/2026 con un Portsdown 4 (H.264 High, 1024x576): 333 kS 3/4 MER 18,6–20,1 dB, 500 kS 3/4
   MER 13,5 dB, risposte ricevute con il rapporto e la costellazione.
+- Provato in aria il 13/11/2026 da OK1CDJ con ESP32-ATV (trasmettitore XIAO ESP32-C3, app Android) a 2345 MHz, beacon su
+  una XIAO ESP32S3 Plus: 333 kS 3/4 frame corti MER 15,6–18,3 dB, risposta ricevuta sull'app; 40 kS 3/4 frame corti
+  19/19 frame MER 19,9 dB e 66 kS 3/4 frame corti 31/31 frame MER 20,9 dB (cinque QSO di seguito), con l'immagine
+  ricevuta. Beacon a 40 kS 3/4, 66 kS 3/4 e 66 kS 1/2 (barre dal vivo, frame corti) ricevuto sull'app.
 
 ## 7. Comandi seriali
 

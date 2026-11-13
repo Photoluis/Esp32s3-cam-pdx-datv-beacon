@@ -6,11 +6,19 @@
  *   TX        rosso al 50% lampeggiante, da 1 Hz a PDX_LED_DB_MIN fino a 5 Hz a PDX_LED_DB_MAX
  *   conferma  giallo lampeggiante lento (Applica / Salva), attività: verde lampeggiante veloce (seriale, web)
  * Modi: normale, minimo (stessi colori alla luminosità più bassa visibile), spento.
- * Il lampeggio è un ciclo hardware dell'RMT: continua da solo mentre il core 0 ha gli interrupt disattivati. */
+ * Il lampeggio è un ciclo hardware dell'RMT: continua da solo mentre il core 0 ha gli interrupt disattivati.
+ * XIAO ESP32S3: LED giallo a un colore su GPIO21 (acceso a livello basso), gli stati si distinguono dal ritmo:
+ *   RX acceso fisso, attesa un lampo breve ogni 2 s, TX lampeggio da 1 a 5 Hz, QSO / attività ~8 Hz, conferma 1 Hz;
+ *   minimo = lampi da 20 ms con lo stesso ritmo. */
 #pragma once
 #include <stdint.h>
+#include "sdkconfig.h"
 
+#if CONFIG_PDX_BOARD_XIAO_S3
+#define PDX_LED_GPIO 21
+#else
 #define PDX_LED_GPIO 48
+#endif
 #define PDX_LED_DB_MIN (-40.0)       /* scala del livello del beacon (cursore della pagina web) */
 #define PDX_LED_DB_MAX (-5.0)
 

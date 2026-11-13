@@ -78,11 +78,11 @@ static void make_pat(pdx_mux_t *m, uint8_t *p)
 
 static void make_pmt(pdx_mux_t *m, uint8_t *p)
 {
-    const uint8_t s[] = {0x02, 0xB0, 23, 0x00, 0x01, (uint8_t)(0xC1 | (m->pmt_ver & 31) << 1), 0x00, 0x00,
+    const uint8_t s[] = {0x02, 0xB0, m->no_audio ? 18 : 23, 0x00, 0x01, (uint8_t)(0xC1 | (m->pmt_ver & 31) << 1), 0x00, 0x00,
                          0xE0 | (PID_PCR >> 8), PID_PCR & 0xFF, 0xF0, 0x00,      /* PCR_PID, nessun descrittore */
                          m->vtype, 0xE0 | (m->vpid >> 8), m->vpid & 0xFF, 0xF0, 0x00,
                          (uint8_t)m->es->atype, 0xE0 | (PID_A >> 8), PID_A & 0xFF, 0xF0, 0x00};
-    psi_packet(p, PID_PMT, &m->cc[1], s, sizeof(s));
+    psi_packet(p, PID_PMT, &m->cc[1], s, m->no_audio ? sizeof(s) - 5u : sizeof(s));   /* senza audio: ultima voce tolta */
 }
 
 static void make_sdt(pdx_mux_t *m, uint8_t *p)
@@ -213,7 +213,7 @@ static bool try_queue(pdx_mux_t *m, uint8_t *p)
     if (!c->active) {
         if (m->vq_r == m->vq_w) return false;
         const pdx_vq_entry_t *e = &m->vq[m->vq_r % PDX_VQ_LEN];
-        if (e->pts > now_90k(m) + LEAD_90K) return false;
+        if (e->pts > now_90k(m) + (m->lowrate ? 3u * LEAD_90K : LEAD_90K)) return false;   /* TS lento: 3 s (live_tx) */
         start_pes_raw(m, c, e->pts, e->buf, e->len, true);
         m->vq_sending = true;
     }
@@ -231,17 +231,17 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
     if (m->psi_pending) {
         make_pmt(m, pkt);
         m->psi_pending = 0;
-    } else if (m->n >= m->next_psi) {                     /* PAT + PMT ogni 100 ms */
+    } else if (m->n >= m->next_psi) {                     /* PAT + PMT ogni 100 ms (TS lento: 0,5 s) */
         make_pat(m, pkt);
         m->psi_pending = 1;
-        m->next_psi = m->n + (uint64_t)(0.1 * pkt_per_s);
+        m->next_psi = m->n + (uint64_t)((m->lowrate ? 0.5 : 0.1) * pkt_per_s);
     } else if (m->n >= m->next_sdt) {                     /* SDT ogni 1 s */
         make_sdt(m, pkt);
         m->next_sdt = m->n + (uint64_t)pkt_per_s;
-    } else if (m->n >= m->next_pcr) {                     /* PCR ogni 40 ms */
+    } else if (m->n >= m->next_pcr) {                     /* PCR ogni 40 ms (TS lento: 100 ms) */
         make_pcr(m, pkt);
-        m->next_pcr = m->n + (uint64_t)(0.04 * pkt_per_s);
-    } else if (try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt)) {
+        m->next_pcr = m->n + (uint64_t)((m->lowrate ? 0.1 : 0.04) * pkt_per_s);
+    } else if (!m->no_audio && try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt)) {
         m->stats_audio++;
     } else if (!m->vqueue && try_stream(m, &m->v, 0, m->vpid, &m->cc[3], pkt)) {
         m->stats_video++;
@@ -265,6 +265,8 @@ const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, cons
     m->es = h;
     m->rate = rate;
     m->vqueue = vqueue;
+    /* sotto 150 kbit/s (SR sotto 100 kS) PAT/PMT ogni 100 ms e PCR ogni 40 ms prenderebbero quasi tutto il TS */
+    m->lowrate = rate < 150000.0;
     m->vtype = vqueue ? 0x1B : (uint8_t)h->vtype;
     m->vpid = m->vtype == 0x24 ? PID_V : PID_V264;
     if (last.valid) {                                      /* prosegue dal segmento precedente, più la pausa reale */
