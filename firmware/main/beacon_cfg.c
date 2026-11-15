@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -53,6 +55,7 @@ void pdx_cfg_defaults(pdx_cfg_t *c)
         .lo_khz = 0, .xvtr = PDX_XVTR_SUM, .telem = 1,
         .locator = "",         /* nessun locatore di fabbrica (come NOCALL): ognuno imposta il proprio */
         .parrot_on = 0, .parrot_reply = 60, .parrot_stab = 3,
+        .audio = PDX_AUDIO_TONE,
     };
 #if CONFIG_PDX_BOARD_XIAO_S3
     c->cam_s = 0;                                       /* XIAO: nessuna camera, solo monoscopio */
@@ -83,9 +86,55 @@ const char *pdx_cfg_telemetry(const pdx_cfg_t *c, uint32_t cycle)
     const uint32_t up = (uint32_t)(esp_timer_get_time() / 60000000);
     char ts[12] = "TEMP --";
     if (!isnan(t)) snprintf(ts, sizeof(ts), "TEMP %dC", (int)lroundf(t));
-    if (cycle) snprintf(s, sizeof(s), "%s  UP %uh%02um  CYCLE %u", ts, (unsigned)(up / 60), (unsigned)(up % 60), (unsigned)cycle);
-    else snprintf(s, sizeof(s), "%s  UP %uh%02um", ts, (unsigned)(up / 60), (unsigned)(up % 60));
+    int n;
+    if (cycle) n = snprintf(s, sizeof(s), "%s  UP %uh%02um  CYCLE %u", ts, (unsigned)(up / 60), (unsigned)(up % 60), (unsigned)cycle);
+    else n = snprintf(s, sizeof(s), "%s  UP %uh%02um", ts, (unsigned)(up / 60), (unsigned)(up % 60));
+    if (pdx_time_valid() && n > 0 && n < 31) {                /* ora UTC dell'inizio del segmento: 39 caratteri in 320 px */
+        const time_t t = (time_t)(pdx_time_ms() / 1000);
+        struct tm tm;
+        gmtime_r(&t, &tm);
+        snprintf(s + n, sizeof(s) - (size_t)n, "  %02d:%02dZ", tm.tm_hour, tm.tm_min);
+    }
     return s;
+}
+
+int64_t pdx_time_ms(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+bool pdx_time_valid(void) { return pdx_time_ms() / 1000 >= PDX_TIME_MIN_S; }
+
+void pdx_time_set_ms(int64_t ms)
+{
+    const struct timeval tv = {.tv_sec = (time_t)(ms / 1000), .tv_usec = (suseconds_t)(ms % 1000) * 1000};
+    settimeofday(&tv, NULL);
+}
+
+const char *pdx_time_str(int64_t ms)
+{
+    static char s[64];                                 /* 21 caratteri; il resto per il controllo dei formati */
+    const time_t t = (time_t)(ms / 1000);
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    snprintf(s, sizeof(s), "%04d-%02d-%02d %02d:%02d:%02dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+             tm.tm_min, tm.tm_sec);
+    return s;
+}
+
+uint32_t pdx_cycle_min(const pdx_cfg_t *c)
+{
+    const uint32_t tx = c->mono_s + c->cam_s, margin = c->parrot_on && c->pause_s ? 20u : 5u;
+    const uint32_t need = (tx + margin + 59u) / 60u, want = (tx + c->pause_s + 30u) / 60u;
+    return need > want ? need : want;
+}
+
+int64_t pdx_next_start_ms(const pdx_cfg_t *c, int64_t not_before_ms)
+{
+    const int64_t period = (int64_t)pdx_cycle_min(c) * 60000;
+    return (not_before_ms + period - 1) / period * period;
 }
 
 const char *pdx_cfg_provider(const pdx_cfg_t *c, uint32_t if_khz)
@@ -113,11 +162,13 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     const size_t old_len = tmp.version == 2 ? offsetof(pdx_cfg_t, mono_src)
                          : tmp.version == 3 ? offsetof(pdx_cfg_t, lo_khz)
                          : tmp.version == 4 ? offsetof(pdx_cfg_t, locator)
-                         : tmp.version == 5 ? offsetof(pdx_cfg_t, cam_flip) : 0;
+                         : tmp.version == 5 ? offsetof(pdx_cfg_t, cam_flip)
+                         : tmp.version == 6 ? offsetof(pdx_cfg_t, audio) : 0;
     if (old_len && len == ((old_len + 3u) & ~(size_t)3u)) {
         pdx_cfg_t d;
         pdx_cfg_defaults(&d);
         memcpy((uint8_t *)&tmp + old_len, (const uint8_t *)&d + old_len, sizeof(tmp) - old_len);
+        tmp.audio = PDX_AUDIO_FILE;                     /* come prima: il suono del file ES (anche di un video proprio) */
         tmp.version = PDX_CFG_VERSION;
     } else if (len != sizeof(tmp) || tmp.version != PDX_CFG_VERSION) {
         return false;
@@ -129,6 +180,7 @@ bool pdx_cfg_load(pdx_cfg_t *c)
     /* la prima v1.2.0-dev salvava questi byte a zero (erano riservati) */
     if (tmp.parrot_reply < 10 || tmp.parrot_reply > 250) tmp.parrot_reply = 60;
     if (tmp.parrot_stab > 30) tmp.parrot_stab = 3;
+    if (tmp.audio >= PDX_AUDIO_N) tmp.audio = PDX_AUDIO_TONE;
 #if CONFIG_PDX_BOARD_XIAO_S3
     tmp.cam_s = 0;
 #endif
@@ -162,16 +214,19 @@ void pdx_cfg_print(const pdx_cfg_t *c)
                (unsigned)(pdx_cfg_sr(c) / 1000u));
     if (pdx_cfg_sr(c) < 125000u && c->mono_s && (c->mono_src == PDX_MONO_STD || c->mono_src == PDX_MONO_USR_VIDEO))
         printf("ATTENZIONE a %u kS il monoscopio precodificato non sta nel TS: monosrc LIVE o IMAGE (immagine fissa, "
-               "senza audio)\n", (unsigned)(pdx_cfg_sr(c) / 1000u));
+               "suono solo con audio TONE o CW)\n", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("CFG SR %u kS | ", (unsigned)(pdx_cfg_sr(c) / 1000u));
     printf("auto %s | freq %.3f MHz | FEC %s | livello %.1f dB (amp %d) | dc %d/%d | ciclo: monoscopio %s %u s, camera %s %u s, "
-           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | QRZ %s | LOC %s | camera%s%s\n",
+           "pausa %u s | sfondo PiP %s | sovrimpressione %s | attesa all'avvio %u s | LED %s | telemetria %s | Wi-Fi %s | QRZ %s | LOC %s | camera%s%s\n",
            c->auto_tx ? "ON" : "OFF", c->freq_khz / 1000.0, c->fec, pdx_amp_to_level(c->amp), c->amp, c->dci, c->dcq, src[c->mono_src % 4],
            c->mono_s, c->cam_mode == PDX_CAMMODE_PIP ? "PIP" : "FULL", c->cam_s, c->pause_s,
            c->pip_bg ? "IMAGE" : "STD", c->ovl ? "ON" : "OFF", c->boot_wait_s,
-           c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF", c->callsign,
+           c->led == PDX_LED_OFF ? "OFF" : c->led == PDX_LED_MIN ? "MIN" : "NORMAL", c->telem ? "ON" : "OFF",
+           c->wifi_off ? "OFF" : "ON", c->callsign,
            c->locator[0] ? c->locator : "-", c->cam_flip & PDX_CAMFLIP_H ? " ribaltata H" : "",
            c->cam_flip & PDX_CAMFLIP_V ? " ribaltata V" : (c->cam_flip ? "" : " dritta"));
+    printf("CFG suono %s%s\n", pdx_audio_name(c->audio),
+           c->audio == PDX_AUDIO_TONE ? " (1 kHz)" : c->audio == PDX_AUDIO_CW ? " (QRZ e locator in Morse ogni 30 s, 750 Hz)" : "");
     printf("CFG Parrot %s: ascolto nelle pause, risposta %u s, stabilizzazione %u s\n", c->parrot_on ? "ON" : "OFF",
            c->parrot_reply, c->parrot_stab);
     if (c->parrot_on && c->pause_s < PDX_PARROT_PAUSE_MIN)
@@ -297,6 +352,10 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
         if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->telem = 1;
         else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->telem = 0;
         else return "telem ON/OFF";
+    } else if (!strcasecmp(key, "wifi")) {               /* access point all'avvio: OFF = configurazione solo dalla seriale */
+        if (!strcasecmp(value, "on") || !strcmp(value, "1")) c->wifi_off = 0;
+        else if (!strcasecmp(value, "off") || !strcmp(value, "0")) c->wifi_off = 1;
+        else return "wifi ON/OFF";
     } else if (!strcasecmp(key, "led")) {
         if (!strcasecmp(value, "normal")) c->led = PDX_LED_NORMAL;
         else if (!strcasecmp(value, "min")) c->led = PDX_LED_MIN;
@@ -318,12 +377,17 @@ const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value)
     } else if (!strcasecmp(key, "pstab")) {
         if (!parse_int(value, 0, 30, &v)) return "pstab 0..30 s";
         c->parrot_stab = (uint8_t)v;
+    } else if (!strcasecmp(key, "audio")) {
+        uint8_t i = 0;
+        while (i < PDX_AUDIO_N && strcasecmp(value, pdx_audio_name(i))) i++;
+        if (i == PDX_AUDIO_N) return "audio OFF/TONE/CW/FILE";
+        c->audio = i;
     } else if (!strcasecmp(key, "xvtr")) {
         if (!strcasecmp(value, "sum")) c->xvtr = PDX_XVTR_SUM;
         else if (!strcasecmp(value, "diff")) c->xvtr = PDX_XVTR_DIFF;
         else return "xvtr SUM (OL+IF) / DIFF (|OL-IF|)";
     } else {
-        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem camh camv parrot preply pstab";
+        return "chiavi: auto freq sr fec level amp dci dcq mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem camh camv parrot preply pstab audio";
     }
     return NULL;
 }
@@ -347,7 +411,7 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     pdx_live_cfg_t lc = {.sr = pdx_cfg_sr(c), .fec = c->fec, .shortf = pdx_cfg_sr(c) < PDX_SR_SHORTF, .pilots = true, .amp = c->amp, .dci = c->dci, .dcq = c->dcq,
                          .service = c->callsign, .provider = pdx_cfg_provider(c, c->freq_khz), .ovl_full = c->ovl != 0,
                          .locator = c->locator,
-                         .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL)};
+                         .freq_khz = fin, .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .audio = c->audio};
     pdx_rf_set_invert(inv);
     pdx_cam_set_flip(c->cam_flip & PDX_CAMFLIP_H, c->cam_flip & PDX_CAMFLIP_V);
     lc.telem = pdx_cfg_telemetry(c, cycle);              /* letta qui, prima della TX */
@@ -393,13 +457,25 @@ static bool segment(const pdx_cfg_t *c, uint32_t cycle, bool mono, pdx_rf_abort_
     return ms + 50u >= want;
 }
 
-uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_pause_fn pause_fn)
+uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abort_fn idle_abort, pdx_pause_fn pause_fn)
 {
     if (!c->mono_s && !c->cam_s) {
         printf("BEACON niente da trasmettere: monoscopio e camera a 0 s\n");
         return 0;
     }
     for (uint32_t cycle = 1;; cycle++) {
+        if (pdx_time_valid()) {                       /* partenza nel minuto pieno del ciclo (fino a 1 s di ritardo va bene) */
+            const int64_t now = pdx_time_ms(), t0 = pdx_next_start_ms(c, now - 1000);
+            if (t0 - now > 1500) {
+                printf("BEACON partenza alle %s (tra %u s, ciclo di %u min)\n", pdx_time_str(t0), (unsigned)((t0 - now + 999) / 1000),
+                       (unsigned)pdx_cycle_min(c));
+                fflush(stdout);
+            }
+            while (pdx_time_ms() < t0) {
+                if (idle_abort && idle_abort()) return cycle - 1;
+                vTaskDelay(pdMS_TO_TICKS(t0 - pdx_time_ms() > 60 ? 50 : 5));
+            }
+        }
         bool sent = false;
         if (c->mono_s && !segment(c, cycle, true, tx_abort, &sent)) return cycle - 1;
         if (c->cam_s && !segment(c, cycle, false, tx_abort, &sent)) return cycle - 1;
@@ -407,8 +483,8 @@ uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_pause_
             printf("BEACON nessun segmento trasmesso: ciclo fermato\n");
             return cycle - 1;
         }
-        if (c->pause_s) {
-            printf("BEACON pausa %u s (TX spenta)\n", c->pause_s);
+        if (c->pause_s || pdx_time_valid()) {
+            if (!pdx_time_valid()) printf("BEACON pausa %u s (TX spenta)\n", c->pause_s);
             fflush(stdout);
             if (pause_fn ? !pause_fn(c, c->pause_s) : !wait_s(c->pause_s, NULL)) return cycle;
         }

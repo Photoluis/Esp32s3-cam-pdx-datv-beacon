@@ -1,9 +1,11 @@
 /* ESP32-S3-CAM_PDX DATV Beacon - IZ7PDX - GPL-3.0
  * Access point Wi-Fi e server HTTP di configurazione. Il server gira sul core 1; le modifiche passano da pdx_cfg_set(),
- * con gli stessi controlli del comando SET della seriale. */
+ * con gli stessi controlli del comando SET della seriale. Le risposte JSON servono anche al comando API della seriale
+ * (la stessa pagina aperta da GitHub Pages parla con la scheda via Web Serial). */
 #include "web_ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_http_server.h"
 #include "esp_timer.h"
@@ -67,14 +69,14 @@ static int cfg_json(char *b, size_t n)
     return snprintf(b, n,
                     "{\"auto\":%d,\"freq\":%.3f,\"fec\":\"%s\",\"amp\":%d,\"level\":%.1f,\"dci\":%d,\"dcq\":%d,\"mono\":%u,"
                     "\"monosrc\":\"%s\",\"cam\":%u,\"cammode\":\"%s\",\"pipbg\":\"%s\",\"ovl\":%d,\"pause\":%u,"
-                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u,\"camh\":%d,\"camv\":%d,\"parrot\":%d,\"preply\":%u,\"pstab\":%u}",
+                    "\"wait\":%u,\"call\":\"%s\",\"lo\":%.3f,\"xvtr\":\"%s\",\"final\":%.3f,\"inv\":%d,\"led\":\"%s\",\"telem\":%d,\"loc\":\"%s\",\"sr\":%u,\"camh\":%d,\"camv\":%d,\"parrot\":%d,\"preply\":%u,\"pstab\":%u,\"wifi\":%d,\"audio\":\"%s\"}",
                     cfg->auto_tx, cfg->freq_khz / 1000.0, cfg->fec, cfg->amp, pdx_amp_to_level(cfg->amp), cfg->dci, cfg->dcq, cfg->mono_s,
                     src[cfg->mono_src % 4], cfg->cam_s, cfg->cam_mode == PDX_CAMMODE_PIP ? "pip" : "full",
                     cfg->pip_bg ? "image" : "std", cfg->ovl, cfg->pause_s, cfg->boot_wait_s, cfg->callsign, cfg->lo_khz / 1000.0,
                     cfg->xvtr == PDX_XVTR_DIFF ? "diff" : "sum", fin / 1000.0, inv,
                     cfg->led == PDX_LED_OFF ? "off" : cfg->led == PDX_LED_MIN ? "min" : "normal", cfg->telem, cfg->locator, (unsigned)(pdx_cfg_sr(cfg) / 1000u),
                     (cfg->cam_flip & PDX_CAMFLIP_H) ? 1 : 0, (cfg->cam_flip & PDX_CAMFLIP_V) ? 1 : 0, cfg->parrot_on,
-                    cfg->parrot_reply, cfg->parrot_stab);
+                    cfg->parrot_reply, cfg->parrot_stab, !cfg->wifi_off, pdx_audio_name(cfg->audio));
 }
 
 static esp_err_t send_json(httpd_req_t *r, const char *s)
@@ -92,25 +94,32 @@ static esp_err_t h_index(httpd_req_t *r)
     return httpd_resp_send(r, index_html_start, index_html_end - index_html_start);
 }
 
-static esp_err_t h_status(httpd_req_t *r)
+int pdx_web_status_json(char *b, size_t n)
 {
-    client_seen = true;
-    pdx_led_activity();
-    char c[560], b[1400], md[4][96];
+    char c[600], md[4][96];
     pdx_cfg_lock();
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
     for (int m = 0; m < 4; m++) pdx_media_describe((pdx_media_t)m, md[m], sizeof(md[m]));
-    snprintf(b, sizeof(b),
-             "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"cfg\":%s,"
+    return snprintf(b, n,
+             "{\"fw\":\"%s\",\"mode\":\"%s\",\"uptime\":%lld,\"time\":%lld,\"cyc\":%u,\"ap\":%s,\"cfg\":%s,"
              "\"media\":{\"es_std\":\"%s\",\"es_usr\":\"%s\",\"img_std\":\"%s\",\"img_usr\":\"%s\","
              "\"es_usr_ok\":%s,\"img_usr_ok\":%s,\"es_max\":%u},\"fmin\":%u,\"fmax\":%u,\"ampmax\":%d,\"temp\":%.1f,\"qso\":%s,\"nocam\":%s}",
-             fw, mode_text, (long long)(esp_timer_get_time() / 1000000), c, md[0], md[1], md[2], md[3],
+             fw, mode_text, (long long)(esp_timer_get_time() / 1000000),
+             pdx_time_valid() ? (long long)(pdx_time_ms() / 1000) : 0LL, (unsigned)pdx_cycle_min(cfg), server ? "true" : "false", c, md[0], md[1], md[2], md[3],
              pdx_media_map(PDX_MEDIA_ES_USR, NULL) ? "true" : "false",
              pdx_media_map(PDX_MEDIA_IMG_USR, NULL) ? "true" : "false", (unsigned)PDX_ES_USR_SIZE,
              (unsigned)(PDX_RF_FMIN_KHZ / 1000), (unsigned)(PDX_RF_FMAX_KHZ / 1000), PDX_RF_AMP_MAX,
              isnan(pdx_temp_read()) ? -99.0 : pdx_temp_read(), pdx_parrot_json(),
              NOCAM_JSON);
+}
+
+static esp_err_t h_status(httpd_req_t *r)
+{
+    client_seen = true;
+    pdx_led_activity();
+    char b[1440];
+    pdx_web_status_json(b, sizeof(b));
     return send_json(r, b);
 }
 
@@ -128,20 +137,9 @@ static void url_decode(char *s)
     *o = 0;
 }
 
-/* POST /api/set  corpo "chiave=valore&chiave=valore" (form urlencoded) */
-static esp_err_t h_set(httpd_req_t *r)
+bool pdx_web_set_form(char *body, char *out, size_t n)
 {
-    client_seen = true;
-    char body[512];
-    const int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
-    int got = 0;
-    while (got < len) {
-        const int k = httpd_req_recv(r, body + got, len - got);
-        if (k <= 0) return ESP_FAIL;
-        got += k;
-    }
-    body[got] = 0;
-    char errs[300] = "", c[560], out[960];
+    char errs[300] = "", c[580];
     pdx_cfg_lock();
     for (char *save = NULL, *kv = strtok_r(body, "&", &save); kv; kv = strtok_r(NULL, "&", &save)) {
         char *eq = strchr(kv, '=');
@@ -159,21 +157,64 @@ static esp_err_t h_set(httpd_req_t *r)
     }
     cfg_json(c, sizeof(c));
     pdx_cfg_unlock();
-    snprintf(out, sizeof(out), "{\"ok\":%s,\"errors\":[%s],\"cfg\":%s}", errs[0] ? "false" : "true", errs, c);
+    snprintf(out, n, "{\"ok\":%s,\"errors\":[%s],\"cfg\":%s}", errs[0] ? "false" : "true", errs, c);
     if (errs[0]) pdx_led_activity(); else pdx_led_confirm();      /* giallo lento: parametri applicati */
+    return !errs[0];
+}
+
+/* POST /api/set  corpo "chiave=valore&chiave=valore" (form urlencoded) */
+static esp_err_t h_set(httpd_req_t *r)
+{
+    client_seen = true;
+    char body[512], out[960];
+    const int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
+    int got = 0;
+    while (got < len) {
+        const int k = httpd_req_recv(r, body + got, len - got);
+        if (k <= 0) return ESP_FAIL;
+        got += k;
+    }
+    body[got] = 0;
+    pdx_web_set_form(body, out, sizeof(out));
     return send_json(r, out);
 }
 
-static esp_err_t h_save(httpd_req_t *r)
+/* ora dal browser: corpo "t=<ms UTC dal 1970>" (anche in secondi); la scrive nel log con lo scarto dalla precedente */
+const char *pdx_web_time_json(const char *body)
+{
+    static char out[120];
+    const char *v = strstr(body, "t=");
+    long long ms = v ? strtoll(v + 2, NULL, 10) : 0;
+    if (ms > 0 && ms < 100000000000LL) ms *= 1000;             /* secondi */
+    if (ms / 1000 < PDX_TIME_MIN_S) return "{\"ok\":false,\"msg\":\"ora non valida\"}";
+    const bool had = pdx_time_valid();
+    const long long d = had ? (long long)pdx_time_ms() - ms : 0;
+    pdx_time_set_ms(ms);
+    if (had) printf("TIME ora %s (scarto %+.1f s)\n", pdx_time_str(ms), d / 1000.0);
+    else printf("TIME ora %s (prima non impostata)\n", pdx_time_str(ms));
+    snprintf(out, sizeof(out), "{\"ok\":true,\"msg\":\"ora impostata\",\"time\":%lld,\"delta\":%lld}", ms / 1000, d);
+    return out;
+}
+
+static esp_err_t h_time(httpd_req_t *r)
+{
+    char body[48];
+    const int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
+    const int k = len > 0 ? httpd_req_recv(r, body, len) : 0;
+    body[k > 0 ? k : 0] = 0;
+    return send_json(r, pdx_web_time_json(body));
+}
+
+const char *pdx_web_save_json(void)
 {
     pdx_cfg_lock();
     const bool ok = pdx_cfg_save(cfg);
     pdx_cfg_unlock();
     if (ok) pdx_led_confirm(); else pdx_led_activity();
-    return send_json(r, ok ? "{\"ok\":true,\"msg\":\"configurazione salvata\"}" : "{\"ok\":false,\"msg\":\"errore NVS\"}");
+    return ok ? "{\"ok\":true,\"msg\":\"configurazione salvata\"}" : "{\"ok\":false,\"msg\":\"errore NVS\"}";
 }
 
-static esp_err_t h_defaults(httpd_req_t *r)
+const char *pdx_web_defaults_json(void)
 {
     pdx_cfg_lock();
     char pass[sizeof(cfg->ap_pass)];
@@ -181,8 +222,11 @@ static esp_err_t h_defaults(httpd_req_t *r)
     pdx_cfg_defaults(cfg);
     strcpy(cfg->ap_pass, pass);
     pdx_cfg_unlock();
-    return send_json(r, "{\"ok\":true,\"msg\":\"valori predefiniti (non ancora salvati)\"}");
+    return "{\"ok\":true,\"msg\":\"valori predefiniti (non ancora salvati)\"}";
 }
+
+static esp_err_t h_save(httpd_req_t *r) { return send_json(r, pdx_web_save_json()); }
+static esp_err_t h_defaults(httpd_req_t *r) { return send_json(r, pdx_web_defaults_json()); }
 
 /* tipo di file dalla query: ?kind=video | ?kind=image */
 static bool query_kind(httpd_req_t *r, pdx_media_t *m)
@@ -229,14 +273,18 @@ static esp_err_t h_upload(httpd_req_t *r)
     return media_reply(r, m, e);
 }
 
+const char *pdx_web_erase_json(pdx_media_t m)
+{
+    return pdx_media_erase_user(m) ? "{\"ok\":false,\"msg\":\"cancellazione non riuscita\"}"
+                                   : "{\"ok\":true,\"msg\":\"file personalizzato cancellato\"}";
+}
+
 /* POST /api/erase?kind=video|image: cancella un file personalizzato (quelli standard non si possono cancellare) */
 static esp_err_t h_erase(httpd_req_t *r)
 {
     pdx_media_t m;
     if (!query_kind(r, &m)) return send_json(r, "{\"ok\":false,\"msg\":\"kind=video|image\"}");
-    const char *e = pdx_media_erase_user(m);
-    return send_json(r, e ? "{\"ok\":false,\"msg\":\"cancellazione non riuscita\"}"
-                          : "{\"ok\":true,\"msg\":\"file personalizzato cancellato\"}");
+    return send_json(r, pdx_web_erase_json(m));
 }
 
 static esp_err_t h_start(httpd_req_t *r)
@@ -297,6 +345,7 @@ bool pdx_web_start(void)
         {.uri = "/api/status", .method = HTTP_GET, .handler = h_status},
         {.uri = "/api/set", .method = HTTP_POST, .handler = h_set},
         {.uri = "/api/save", .method = HTTP_POST, .handler = h_save},
+        {.uri = "/api/time", .method = HTTP_POST, .handler = h_time},
         {.uri = "/api/defaults", .method = HTTP_POST, .handler = h_defaults},
         {.uri = "/api/start", .method = HTTP_POST, .handler = h_start},
         {.uri = "/api/upload", .method = HTTP_POST, .handler = h_upload},

@@ -17,12 +17,14 @@
  *   CAMBENCH <w> <h> <fotogrammi> <kbps> <fps>  prova camera + H.264 software sul core 1 (nessuna RF)
  *   ESPLAY <MHz> <liv> <s> [fec] [<SR>k] [short] [nopilots] [cam|pip|img|live|user]  TS generato sull'ESP: monoscopio standard,
  *        camera, camera in PiP, immagine personalizzata, video personalizzato
- *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py)
+ *   TSDUMP | CAMDUMP | PIPDUMP | IMGDUMP <pacchetti>   TS in esadecimale senza RF (tools/ts_capture.py), suono da SET audio
  *   MEDIA | MEDIAERASE VIDEO|IMAGE | MEDIAW VIDEO|IMAGE <byte> <crc32>   monoscopi in flash (tools/upload_media.py)
  *   CONFIG | SET <chiave> <valore> | SAVE | DEFAULTS   configurazione del beacon (chiavi: auto freq fec level amp dci dcq
- *        mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem); SAVE la scrive in NVS
+ *        mono monosrc cam cammode pipbg ovl pause wait call loc appass lo xvtr led telem audio); SAVE la scrive in NVS
  *        loc = QTH locator Maidenhead (JN80 o JN80PS, - per toglierlo), in sovrimpressione accanto alla frequenza
  *        led NORMAL|MIN|OFF = LED di stato normale, al minimo o spento (alimentazione a batteria)
+ *        audio OFF|TONE|CW|FILE = suono nel TS: nessuno, tono da 1 kHz, QRZ e locator in Morse (750 Hz, ogni 30 s),
+ *        audio del file ES (monoscopio o video personalizzato); tono e CW generati anche a SR basso
  *        telem ON|OFF = riga con temperatura del chip, tempo di accensione e ciclo nei modi dal vivo
  *        lo = oscillatore locale di un mixer esterno (MHz, 0 = nessuno), xvtr SUM|DIFF: la scheda trasmette sempre sulla IF
  *        (2300..2450 MHz); sovrimpressione, SDT e pagina web mostrano la frequenza finale
@@ -46,6 +48,7 @@
 #include "esp_rom_crc.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_private/esp_clk.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "soc/gpio_reg.h"
@@ -86,6 +89,8 @@ typedef struct {
     uint32_t magic;
     pdx_cfg_t cfg;
     char cmd[128];
+    int64_t time_ms;                 /* ora UTC al momento del riavvio (0 = non impostata) */
+    uint64_t rtc_us;                 /* contatore RTC nello stesso istante: misura la durata del riavvio */
     uint32_t crc;
 } rtc_pending_t;
 RTC_NOINIT_ATTR static rtc_pending_t rtc_pending;
@@ -104,6 +109,7 @@ typedef struct {
     uint32_t n;                      /* QSO ricevuti dall'accensione (la memoria RTC resta con i riavvii software) */
     float rf_dbfs;                   /* potenza media della cattura in dBFS (guadagno RX fisso, non tarata in dBm) */
     uint8_t shortf;                  /* frame corti ricevuti: la risposta li usa anche lei */
+    uint32_t utc;                    /* ora UTC del QSO, s dal 1970 (0 = ora non impostata) */
     uint32_t crc;
 } parrot_state_t;
 static bool beacon_pause(const pdx_cfg_t *c, uint32_t s);
@@ -140,6 +146,10 @@ static void reboot_and_run(const char *cmd)
     rtc_pending.cfg = cfg;
     pdx_cfg_unlock();
     snprintf(rtc_pending.cmd, sizeof(rtc_pending.cmd), "%s", cmd);
+    /* l'ora passa dal contatore RTC solo per la durata del riavvio: il suo oscillatore RC sbaglia di qualche per mille,
+     * accumulato su ore di cicli spostava il minuto pieno */
+    rtc_pending.time_ms = pdx_time_valid() ? pdx_time_ms() : 0;
+    rtc_pending.rtc_us = esp_clk_rtc_time();
     rtc_pending.magic = RTC_PENDING_MAGIC;
     rtc_pending.crc = pending_crc(&rtc_pending);
     printf("RIAVVIO per TX con la radio pulita (access point o ricezione usati): poi \"%s\"\n", cmd);
@@ -157,9 +167,23 @@ static bool take_pending(char *cmd, size_t n)
     const bool ok = esp_reset_reason() == ESP_RST_SW && rtc_pending.magic == RTC_PENDING_MAGIC &&
                     rtc_pending.crc == pending_crc(&rtc_pending);
     rtc_pending.magic = 0;
-    if (!ok) return false;
+    if (!ok) {
+        /* dopo gli altri reset (RST, apertura della porta USB, esptool, watchdog) l'IDF riprende l'ora dal contatore RTC
+         * a oscillatore RC dall'ultima impostazione: dopo ore di attesa era avanti di 2,4 min (15/11). Meglio nessuna
+         * ora: la pagina web la reimposta appena caricata */
+        if (pdx_time_valid()) {
+            printf("ORA non più valida dopo il reset (%d): da reimpostare (pagina web o TIME)\n", (int)esp_reset_reason());
+            pdx_time_set_ms(0);
+        }
+        return false;
+    }
     cfg = rtc_pending.cfg;
     snprintf(cmd, n, "%s", rtc_pending.cmd);
+    if (rtc_pending.time_ms) {
+        const uint64_t now = esp_clk_rtc_time();
+        const uint64_t d = now > rtc_pending.rtc_us && now - rtc_pending.rtc_us < 30000000u ? now - rtc_pending.rtc_us : 1500000u;
+        pdx_time_set_ms(rtc_pending.time_ms + (int64_t)(d / 1000));
+    }
     return true;
 }
 
@@ -213,7 +237,7 @@ static void run_beacon(void)
     fflush(stdout);
     con_wait_tx(pdMS_TO_TICKS(100));
     con_flush_input();
-    const uint32_t n = pdx_beacon_run(&snap, tx_stop_hw, beacon_pause);
+    const uint32_t n = pdx_beacon_run(&snap, tx_stop_hw, stop_requested, beacon_pause);
     while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));   /* attende il rilascio di BOOT */
     discard_input();
     printf("BEACON fermo dopo %u cicli completi: modo configurazione\n", (unsigned)n);
@@ -281,7 +305,7 @@ static void live_cfg_from(pdx_live_cfg_t *lc, pdx_live_video_t v, uint32_t freq_
                            .service = cfg.callsign, .provider = pdx_cfg_provider(&cfg, freq_khz), .video = v,
                            .es = pdx_media_map(PDX_MEDIA_ES_STD, NULL), .ovl_full = cfg.ovl != 0,
                            .freq_khz = pdx_cfg_final_khz(&cfg, freq_khz, NULL), .telem = pdx_cfg_telemetry(&cfg, 0),
-                           .locator = cfg.locator};
+                           .locator = cfg.locator, .audio = cfg.audio};
     if (v == PDX_LV_IMG) lc->bg = usr_img;
     else lc->bg = cfg.pip_bg && usr_img ? usr_img : pdx_media_map(PDX_MEDIA_IMG_STD, NULL);
 }
@@ -371,10 +395,11 @@ static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
     parrot.rf_dbfs = rf_dbfs;
     parrot.shortf = rep->shortf;
     parrot.n = n;
+    parrot.utc = pdx_time_valid() ? (uint32_t)(pdx_time_ms() / 1000) : 0;
     parrot.crc = parrot_crc();
     parrot_texts();
-    printf("PARROT QSO %u: %s | %s | %s | %s | SDT \"%s\"\n", (unsigned)n, parrot_l1, parrot_l2, parrot_l3, parrot_l4,
-           parrot_prov);
+    printf("PARROT QSO %u: %s | %s | %s | %s | SDT \"%s\"%s%s\n", (unsigned)n, parrot_l1, parrot_l2, parrot_l3, parrot_l4,
+           parrot_prov, parrot.utc ? " | " : "", parrot.utc ? pdx_time_str((int64_t)parrot.utc * 1000) : "");
     /* riquadro per la risposta: immagine H.264 ricevuta, altrimenti la costellazione */
     const int64_t t0 = esp_timer_get_time();
     char info[32];
@@ -395,11 +420,11 @@ static void parrot_store(const s2rx_report_t *rep, float rf_dbfs)
 /* ultimo QSO per la pagina web (JSON, "null" se nessuno) */
 const char *pdx_parrot_json(void)
 {
-    static char s[160];
+    static char s[180];
     if (!parrot_valid()) return "null";
-    snprintf(s, sizeof(s), "{\"n\":%u,\"call\":\"%s\",\"mer\":%.1f,\"d\":%.1f,\"sr\":%u,\"fec\":\"%s\",\"foff\":%.1f}",
+    snprintf(s, sizeof(s), "{\"n\":%u,\"call\":\"%s\",\"mer\":%.1f,\"d\":%.1f,\"sr\":%u,\"fec\":\"%s\",\"foff\":%.1f,\"utc\":%u}",
              (unsigned)parrot.n, parrot.call, (double)parrot.mer, (double)parrot.d, (unsigned)((parrot.sr + 500u) / 1000u),
-             parrot.fec, (double)parrot.foff_hz / 1000.0);
+             parrot.fec, (double)parrot.foff_hz / 1000.0, (unsigned)parrot.utc);
     return s;
 }
 
@@ -528,7 +553,18 @@ static int parrot_listen(unsigned listen_s, unsigned stab_s)
  * Restituisce false se la pausa è stata fermata. */
 static bool beacon_pause(const pdx_cfg_t *c, uint32_t s)
 {
-    if (!c->parrot_on) {
+    const bool timed = pdx_time_valid();
+    if (!c->parrot_on || !s) {
+        if (timed) {                                         /* fino al prossimo minuto pieno del ciclo */
+            const int64_t t0 = pdx_next_start_ms(c, pdx_time_ms() + 1000);
+            printf("BEACON pausa fino alle %s (TX spenta)\n", pdx_time_str(t0));
+            fflush(stdout);
+            while (pdx_time_ms() < t0 - 100) {
+                if (stop_requested()) return false;
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            return true;
+        }
         const int64_t end = esp_timer_get_time() + (int64_t)s * 1000000;
         while (esp_timer_get_time() < end) {
             if (stop_requested()) return false;
@@ -536,18 +572,27 @@ static bool beacon_pause(const pdx_cfg_t *c, uint32_t s)
         }
         return true;
     }
-    /* la ricezione parte da una radio pulita: dopo la TX la PHY è nello stato del modulatore (come per l'access point) */
-    char cmd[40];
-    snprintf(cmd, sizeof(cmd), "PARROTPAUSE %u", (unsigned)s);
+    /* la ricezione parte da una radio pulita: dopo la TX la PHY è nello stato del modulatore (come per l'access point).
+     * Con l'ora valida si passa anche la fine della pausa: due riavvii e un ascolto minimo prima del minuto del ciclo. */
+    char cmd[48];
+    if (timed) {
+        const int64_t t0 = pdx_next_start_ms(c, pdx_time_ms() + (2 * PDX_ALIGN_REBOOT_S + 10) * 1000);
+        snprintf(cmd, sizeof(cmd), "PARROTPAUSE %u %lld", (unsigned)s, (long long)(t0 / 1000));
+    } else snprintf(cmd, sizeof(cmd), "PARROTPAUSE %u", (unsigned)s);
     reboot_and_run(cmd);                                     /* non ritorna */
     return false;
 }
 
-/* PARROTPAUSE <s>, dopo il riavvio: ascolto per s secondi, poi risposta o ripresa del ciclo (altro riavvio) */
-static void parrot_pause_run(uint32_t s)
+/* PARROTPAUSE <s> [fine], dopo il riavvio: ascolto per s secondi, oppure fino a PDX_ALIGN_REBOOT_S prima della fine
+ * (s UTC: il minuto pieno del ciclo), poi risposta o ripresa del ciclo (altro riavvio) */
+static void parrot_pause_run(uint32_t s, int64_t end_s)
 {
     pdx_web_stop();
-    printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
+    if (end_s && pdx_time_valid()) {
+        const int64_t left = (end_s - PDX_ALIGN_REBOOT_S) * 1000 - pdx_time_ms();
+        s = left > 5000 ? (uint32_t)(left / 1000) : 5u;
+        printf("BEACON pausa fino alle %s: ascolto Parrot %u s\n", pdx_time_str(end_s * 1000), (unsigned)s);
+    } else printf("BEACON pausa %u s: ascolto Parrot (Parrot acceso)\n", (unsigned)s);
     const int r = parrot_listen(s, cfg.parrot_stab);
     if (r <= 0) pdx_led_idle();                              /* con un QSO il verde veloce resta fino al riavvio */
     if (r < 0) {                                             /* fermato con BOOT o dalla seriale */
@@ -562,6 +607,28 @@ static void parrot_pause_run(uint32_t s)
     reboot_and_run(cmd);
 }
 
+#define PDX_LINE_MAX 640                    /* API set: tutti i campi della pagina in un corpo urlencoded */
+
+/* risposte della pagina web aperta via Web Serial (GitHub Pages): lo stesso JSON di /api/... in una sola riga, così
+ * la pagina la distingue dal log anche se altri task stampano */
+static void api_cmd(int argc, char **argv)
+{
+    static char out[1460];
+    const char *j = out, *op = argc > 1 ? argv[1] : "", *arg = argc > 2 ? argv[2] : "";
+    if (argc == 2 && !strcasecmp(op, "status")) pdx_web_status_json(out, sizeof(out));
+    else if (argc <= 3 && !strcasecmp(op, "set")) {
+        static char body[PDX_LINE_MAX];
+        snprintf(body, sizeof(body), "%s", arg);
+        pdx_web_set_form(body, out, sizeof(out));
+    } else if (argc == 3 && !strcasecmp(op, "time")) j = pdx_web_time_json(arg);
+    else if (argc == 2 && !strcasecmp(op, "save")) j = pdx_web_save_json();
+    else if (argc == 2 && !strcasecmp(op, "defaults")) j = pdx_web_defaults_json();
+    else if (argc == 3 && !strcasecmp(op, "erase") && !strcasecmp(arg, "video")) j = pdx_web_erase_json(PDX_MEDIA_ES_USR);
+    else if (argc == 3 && !strcasecmp(op, "erase") && !strcasecmp(arg, "image")) j = pdx_web_erase_json(PDX_MEDIA_IMG_USR);
+    else j = "{\"ok\":false,\"msg\":\"API status|set|time|save|defaults|erase video|image\"}";
+    printf("@API %s\n", j);
+}
+
 static void handle_cmd(char *line);
 /* semaforo: un comando che ha acceso la ricezione (LED verde) torna in attesa (giallo) quando finisce */
 static void handle(char *line)
@@ -574,7 +641,7 @@ static void handle(char *line)
 
 static void handle_cmd(char *line)
 {
-    char raw[128];
+    static char raw[PDX_LINE_MAX];
     snprintf(raw, sizeof(raw), "%s", line);
     current_line = raw;
     char *argv[8] = {0};
@@ -700,7 +767,13 @@ static void handle_cmd(char *line)
         static pdx_mux_t mux;
         const char *e = pdx_mux_init(&mux, es, rate, cfg.callsign, "IZ7PDX BEACON", false);
         if (e) { printf("ERR %s\n", e); return; }
-        printf("TSDUMP %u pacchetti a %.0f bit/s\n", (unsigned)n, rate);
+        static pdx_agen_t agen;                               /* suono come nel beacon (SET audio) */
+        mux.no_audio = cfg.audio == PDX_AUDIO_OFF;
+        if (cfg.audio == PDX_AUDIO_TONE || cfg.audio == PDX_AUDIO_CW) {
+            pdx_agen_init(&agen, cfg.audio, cfg.callsign, cfg.locator);
+            mux.agen = &agen;
+        }
+        printf("TSDUMP %u pacchetti a %.0f bit/s, suono %s\n", (unsigned)n, rate, pdx_audio_name(cfg.audio));
         uint8_t pk[188];
         for (uint32_t i = 0; i < n; i++) {
             pdx_mux_next(&mux, pk);
@@ -897,7 +970,7 @@ static void handle_cmd(char *line)
             printf("PARROTPAUSE dry: dopo la pausa %s\n", r > 0 ? "risposta (PARROTREPLY ... BEACON)" : r == 0 ? "ripresa del ciclo (BEACON)" : "configurazione (fermato)");
             return;
         }
-        parrot_pause_run((uint32_t)s);
+        parrot_pause_run((uint32_t)s, argc >= 3 ? atoll(argv[2]) : 0);
 
     } else if (!strcasecmp(argv[0], "PARROT") || !strcasecmp(argv[0], "PARROTDEC")) {
         /* PARROT <ascolto_s> <risposta_s> [stabilizzazione_s] [dry]: ascolta sulla frequenza del beacon, cattura 2 s,
@@ -1093,6 +1166,19 @@ static void handle_cmd(char *line)
         heap_caps_print_heap_info(MALLOC_CAP_INTERNAL);
         heap_caps_print_heap_info(MALLOC_CAP_SPIRAM);
 
+    } else if (!strcasecmp(argv[0], "TIME")) {               /* TIME [ms UTC dal 1970]: ora dal browser, in UTC */
+        if (argc == 2) {
+            char body[32];
+            snprintf(body, sizeof(body), "t=%s", argv[1]);
+            const char *j = pdx_web_time_json(body);
+            if (!strstr(j, "\"ok\":true")) { printf("ERR TIME <ms UTC dal 1970>\n"); return; }
+        }
+        if (pdx_time_valid()) printf("OK ora %s, ciclo di %u min\n", pdx_time_str(pdx_time_ms()), (unsigned)pdx_cycle_min(&cfg));
+        else printf("OK ora non impostata (TIME <ms UTC>, oppure dalla pagina web)\n");
+
+    } else if (!strcasecmp(argv[0], "API")) {                /* API status|set <corpo>|time t=<ms>|save|defaults|erase video|image */
+        api_cmd(argc, argv);                                  /* una riga "@API {json}" per la pagina via Web Serial */
+
     } else if (!strcasecmp(argv[0], "CONFIG")) {
         pdx_cfg_print(&cfg);
 
@@ -1131,8 +1217,12 @@ static void handle_cmd(char *line)
         if (frames < 1 || frames > 1000) { printf("ERR fotogrammi 1..1000\n"); return; }
         pdx_cam_bench(atoi(argv[1]), atoi(argv[2]), frames, atoi(argv[4]), atoi(argv[5]));
 
-    } else {
-        printf("ERR comando sconosciuto\n");
+    } else {                                                  /* con il testo ricevuto: byte estranei in esadecimale */
+        char shown[48];
+        size_t o = 0;
+        for (const unsigned char *q = (const unsigned char *)argv[0]; *q && o + 5 < sizeof(shown); q++)
+            o += (size_t)snprintf(shown + o, sizeof(shown) - o, *q >= 32 && *q < 127 ? "%c" : "<%02X>", *q);
+        printf("ERR comando sconosciuto: %s\n", shown);
     }
 }
 
@@ -1146,7 +1236,7 @@ static void autostart(void)
     printf("AUTO TX ON: partenza tra %u s. Un tasto, il pulsante BOOT o l'apertura della pagina web annullano.\n",
            cfg.boot_wait_s);
     pdx_web_set_mode("AUTO TX in attesa");
-    pdx_web_start();
+    if (!cfg.wifi_off) pdx_web_start();
     for (int s = cfg.boot_wait_s; s > 0; s--) {
         if (s % 5 == 0 || s <= 3) { printf("AUTO TX tra %d s\n", s); fflush(stdout); }
         for (int k = 0; k < 20; k++) {
@@ -1186,15 +1276,20 @@ void app_main(void)
     } else {
         autostart();
     }
-    pdx_web_start();
+    if (!cfg.wifi_off) pdx_web_start();
+    else printf("WEB access point spento (SET wifi ON per riaccenderlo, oppure premere BOOT)\n");
 
-    char line[128];
+    static char line[PDX_LINE_MAX];
     size_t used = 0;
     for (;;) {
         uint8_t c;
         if (pdx_web_take_start_request()) {         /* AVVIA BEACON dalla pagina web */
             run_beacon();
             used = 0;
+        }
+        if (!pdx_web_running() && gpio_get_level(BOOT_GPIO) == 0) {   /* Wi-Fi spento: BOOT lo riaccende fino al riavvio */
+            while (gpio_get_level(BOOT_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
+            pdx_web_start();
         }
         if (con_read(&c, 1, pdMS_TO_TICKS(50)) != 1) continue;
         if (c == '\r') continue;

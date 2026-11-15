@@ -4,7 +4,9 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "beacon_cfg.h"
+#include "media_store.h"
 
 void pdx_web_init(pdx_cfg_t *cfg, const char *fw_version);
 bool pdx_web_start(void);                  /* access point + server (se già attivi non fa nulla) */
@@ -19,6 +21,14 @@ bool pdx_web_seen_client(void);            /* true se la pagina è stata aperta 
  * quindi prima di una TX la scheda va riavviata (main.c, reboot_and_run) */
 bool pdx_web_radio_dirty(void);
 void pdx_web_mark_radio_dirty(void);   /* la ricezione (Parrot) ha cambiato la PHY: la prossima TX riavvia */
+
+/* risposte JSON delle API, uguali per HTTP (/api/...) e per il comando API della seriale */
+int pdx_web_status_json(char *out, size_t n);
+bool pdx_web_set_form(char *body, char *out, size_t n);     /* body "chiave=valore&..." (urlencoded), modificato */
+const char *pdx_web_time_json(const char *body);          /* "t=<ms UTC>": imposta l'ora */
+const char *pdx_web_save_json(void);
+const char *pdx_web_defaults_json(void);
+const char *pdx_web_erase_json(pdx_media_t m);
 
 /* ultimo QSO del Parrot in JSON ("null" se nessuno), da main.c */
 const char *pdx_parrot_json(void);

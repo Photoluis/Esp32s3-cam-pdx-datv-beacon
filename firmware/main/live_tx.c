@@ -31,7 +31,9 @@ typedef struct {
     /* video dal vivo */
     const pdx_live_cfg_t *cfg;
     int fps, kbps;
-    bool no_audio;                       /* immagine fissa a SR basso: TS senza audio */
+    bool slow;                           /* immagine fissa a SR basso: 2 fps, PTS più avanti */
+    bool no_audio;                       /* TS senza audio */
+    pdx_agen_t agen;                     /* suono generato (tono, CW) */
     uint8_t *vbuf[PDX_VQ_LEN];
     uint32_t cam_frames, cam_dropped, cam_enc_max_us, cam_enc_sum_us, cam_bytes;
     const char *cam_err;
@@ -98,7 +100,7 @@ static bool video_step(live_t *L)
     if (!len) { L->cam_dropped++; return false; }
     e->len = len;
     /* TS lento: un'immagine I occupa più di 1 s di TS, il PTS va più avanti (3 s) */
-    e->pts = pdx_mux_now_90k(&L->mux) + (L->no_audio ? 3u * CAM_DELAY_90K : CAM_DELAY_90K);
+    e->pts = pdx_mux_now_90k(&L->mux) + (L->slow ? 3u * CAM_DELAY_90K : CAM_DELAY_90K);
     pdx_mux_vq_commit(&L->mux);
     L->cam_frames++;
     L->cam_bytes += len;
@@ -107,14 +109,14 @@ static bool video_step(live_t *L)
     return true;
 }
 
-/* bit/s dei flussi del file ES che vanno nel TS (solo audio se il video è dal vivo) */
-static double es_content_bps(const uint8_t *es, bool with_video)
+/* bit/s dei flussi del file ES che vanno nel TS (video se dal file, audio se dal file) */
+static double es_content_bps(const uint8_t *es, bool with_video, bool with_audio)
 {
     const pdx_es_header_t *h = (const pdx_es_header_t *)es;
     const pdx_es_unit_t *u = (const pdx_es_unit_t *)(es + 64);
     double bytes = 0;
     for (uint32_t i = 0; i < h->nunits; i++)
-        if (with_video || u[i].kind == 1) bytes += u[i].len + 14.0;            /* più l'intestazione PES */
+        if (u[i].kind == 1 ? with_audio : with_video) bytes += u[i].len + 14.0;            /* più l'intestazione PES */
     return bytes * 8.0 * 188.0 / 184.0 / (h->loop_ticks / 90000.0);
 }
 
@@ -123,11 +125,19 @@ static const char *prepare(live_t *L, const pdx_live_cfg_t *c, double rate)
 {
     if (!c->es) return "file ES (audio) assente";
     if (c->video >= PDX_LV_PIP && !c->bg) return "immagine di sfondo assente";
-    double need = es_content_bps(c->es, !live_video(c));
     static char msg[96];
-    /* immagine fissa (Parrot, barre dal vivo) a SR sotto 100 kS: senza audio, 2 fps, PSI e PCR più radi (ts_mux) */
-    L->no_audio = c->video == PDX_LV_IMG && !c->cam_kbps && rate < 150000.0;
-    if (L->no_audio) need = 0;
+    const bool gen = c->audio == PDX_AUDIO_TONE || c->audio == PDX_AUDIO_CW;
+    /* immagine fissa (Parrot, barre dal vivo) a SR sotto 100 kS: 2 fps, PSI e PCR più radi (ts_mux) */
+    L->slow = c->video == PDX_LV_IMG && !c->cam_kbps && rate < 150000.0;
+    /* senza suono se scelto, o con l'audio del file nel modo lento (non ci sta); il suono generato a SR basso va in
+     * PES lunghi (ts_mux) e costa pochi kbit/s */
+    L->no_audio = c->audio == PDX_AUDIO_OFF || (!gen && L->slow);
+    double need = es_content_bps(c->es, !live_video(c), !L->no_audio && !gen), abps = 0;
+    if (gen && !L->no_audio) {
+        pdx_agen_init(&L->agen, c->audio, c->service, c->locator);
+        abps = pdx_agen_bps(&L->agen, pdx_mux_agen_fpp(rate));
+        need += abps;
+    }
     if (need > rate * 0.92) {
         snprintf(msg, sizeof(msg), "il file ES richiede %.0f kbit/s, il TS con questo FEC ne porta %.0f", need / 1000.0,
                  rate / 1000.0);
@@ -135,19 +145,38 @@ static const char *prepare(live_t *L, const pdx_live_cfg_t *c, double rate)
     }
     L->cfg = c;
     if (live_video(c)) {
-        L->fps = c->cam_fps ? c->cam_fps : L->no_audio ? 2 : 6;
+        L->fps = c->cam_fps ? c->cam_fps : L->slow ? 2 : 6;
         /* ciò che resta dopo audio, PSI/PCR e un margine per le immagini I più grandi (TS lento: PSI ~6 kbit/s,
          * PCR ~15 kbit/s, SDT) */
         int k = c->cam_kbps ? c->cam_kbps
-                            : L->no_audio ? (int)((rate - 25000.0) * 0.6 / 1000.0)
+                            : L->slow ? (int)((rate - need - 25000.0) * 0.6 / 1000.0)
                                           : (int)((rate - need - 30000.0) * 0.75 / 1000.0);
+        if (!c->cam_kbps && abps > 0 && k < (L->slow ? 12 : 60)) {
+            /* il suono generato non deve impedire la TX (risposta del Parrot a 40 kS 3/4): senza suono */
+            printf("LIVE suono %s tolto: con %.1f kbit/s di suono il video resterebbe a %d kbit/s\n",
+                   pdx_audio_name(c->audio), abps / 1000.0, k);
+            need -= abps;
+            abps = 0;
+            L->no_audio = true;
+            k = L->slow ? (int)((rate - need - 25000.0) * 0.6 / 1000.0) : (int)((rate - need - 30000.0) * 0.75 / 1000.0);
+        }
         L->kbps = k > 300 ? 300 : k;
-        if (L->kbps < (L->no_audio ? 12 : 60)) return "bitrate troppo basso per il video dal vivo";
+        if (L->kbps < (L->slow ? 12 : 60)) return "bitrate troppo basso per il video dal vivo";
         for (int i = 0; i < PDX_VQ_LEN; i++)
             if (!(L->vbuf[i] = heap_caps_malloc(VBUF_CAP, MALLOC_CAP_SPIRAM))) return "memoria";
     }
     const char *e = pdx_mux_init(&L->mux, c->es, rate, c->service, c->provider, live_video(c));
     L->mux.no_audio = L->no_audio;
+    if (gen && !L->no_audio) L->mux.agen = &L->agen;
+    if (!e) {
+        if (L->mux.agen && c->audio == PDX_AUDIO_CW)
+            printf("LIVE suono: CW ID \"%s\" (%.1f s ogni 30 s), %.1f kbit/s\n", L->agen.text,
+                   L->agen.cw_frames * (double)PDX_AGEN_FRAME / PDX_AGEN_HZ, abps / 1000.0);
+        else if (L->mux.agen) printf("LIVE suono: tono %.1f kbit/s\n", abps / 1000.0);
+        else printf("LIVE suono: %s%s\n", L->no_audio ? "nessuno" : pdx_audio_name(c->audio),
+                    L->no_audio && c->audio == PDX_AUDIO_FILE ? " (audio del file: SR troppo basso)"
+                    : L->no_audio && gen ? " (bitrate troppo basso)" : "");
+    }
     return e;
 }
 

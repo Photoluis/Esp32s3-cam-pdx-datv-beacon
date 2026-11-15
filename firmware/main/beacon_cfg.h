@@ -3,14 +3,15 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "audio_gen.h"
 #include "rf_s3.h"
 
-#define PDX_CFG_VERSION 6
+#define PDX_CFG_VERSION 7
 
 typedef struct {
     uint16_t version;
     uint8_t auto_tx;        /* 1 = all'accensione parte da solo dopo boot_wait_s */
-    uint8_t reserved;
+    uint8_t wifi_off;       /* 1 = access point spento all'avvio (era riservato: 0 = acceso anche nelle configurazioni salvate) */
     uint32_t freq_khz;      /* 2300000..2450000 */
     int16_t amp;            /* 1..PDX_RF_AMP_MAX */
     int16_t dci, dcq;       /* correzione DC del modulatore */
@@ -39,6 +40,8 @@ typedef struct {
     uint8_t parrot_on;      /* Parrot: ascolto durante le pause del ciclo, risposta con QRZ e QRK */
     uint8_t parrot_reply;   /* durata della risposta, s (10..250) */
     uint8_t parrot_stab;    /* attesa tra il segnale trovato e la cattura, s (0..30) */
+    /* dalla versione 7 */
+    uint8_t audio;          /* PDX_AUDIO_*: suono nel TS (nessuno, tono, CW ID, dal file ES) */
 } pdx_cfg_t;
 
 #define PDX_PARROT_PAUSE_MIN 30u   /* pausa minima consigliata con il Parrot: occhiate + cattura + decodifica ~25 s */
@@ -78,8 +81,23 @@ void pdx_cfg_print(const pdx_cfg_t *c);
 /* SET <chiave> <valore>: restituisce NULL se riuscito, altrimenti il motivo */
 const char *pdx_cfg_set(pdx_cfg_t *c, const char *key, const char *value);
 
+/* ora UTC dal browser (pagina web o seriale, comando TIME). Senza RTC a batteria vale fino allo spegnimento; i riavvii
+ * software la conservano (main.c la salva nella RAM RTC), gli altri reset la annullano. Con l'ora valida ogni ciclo parte in un minuto pieno multiplo
+ * di pdx_cycle_min() (UTC): chi chiama sa quando il beacon trasmette e quando il Parrot ascolta. */
+#define PDX_TIME_MIN_S 1767225600LL   /* 01/01/2026: prima l'ora non è stata impostata */
+#define PDX_ALIGN_REBOOT_S 4u         /* dal riavvio dopo l'ascolto del Parrot alla partenza della TX, con margine */
+bool pdx_time_valid(void);
+int64_t pdx_time_ms(void);                   /* ms UTC dal 1970 */
+void pdx_time_set_ms(int64_t ms);
+const char *pdx_time_str(int64_t ms);        /* "2026-11-14 10:23:45Z" */
+/* durata del ciclo allineato in minuti: mono + camera + pausa arrotondati al minuto, almeno la TX con un margine
+ * (con il Parrot anche i due riavvii e un ascolto minimo). La pagina web usa la stessa formula. */
+uint32_t pdx_cycle_min(const pdx_cfg_t *c);
+int64_t pdx_next_start_ms(const pdx_cfg_t *c, int64_t not_before_ms);   /* primo minuto pieno multiplo del ciclo */
+
 /* ciclo del beacon fino allo stop: tx_abort è chiamata dentro i cicli di modulazione (deve leggere solo registri),
- * idle_abort nelle pause; restituisce il numero di cicli completati */
-/* pausa tra un ciclo e l'altro (s secondi, TX spenta): false se fermata. Con il Parrot acceso ascolta e può riavviare */
+ * idle_abort nelle attese fuori dalla TX (allineamento al minuto); restituisce il numero di cicli completati */
+/* pausa tra un ciclo e l'altro (s secondi, TX spenta): false se fermata. Con il Parrot acceso ascolta e può riavviare.
+ * Con l'ora valida viene chiamata anche con s = 0 e dura fino al prossimo minuto del ciclo. */
 typedef bool (*pdx_pause_fn)(const pdx_cfg_t *c, uint32_t s);
-uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_pause_fn pause_fn);
+uint32_t pdx_beacon_run(const pdx_cfg_t *c, pdx_rf_abort_fn tx_abort, pdx_rf_abort_fn idle_abort, pdx_pause_fn pause_fn);

@@ -2,6 +2,30 @@
 
 ## In sviluppo
 
+- **Suono generato: tono o CW ID** (`SET audio TONE|CW|FILE|OFF`, menu *Suono* nella pagina): il tono da 1 kHz e
+  l'identificazione CW (QRZ e locator in Morse, 750 Hz, circa 19 WPM, 1 s dopo l'inizio di ogni segmento e poi ogni
+  30 s, come il CW ID di ESP32-ATV) sono generati dalla scheda con frame AAC precodificati
+  (`tools/make_audio_frames.py` -> `firmware/main/audio_frames.h`): niente encoder sull'ESP, niente salto alla fine
+  del loop del file, più frame in un PES (128 ms, 512 ms sotto 150 kbit/s di TS) e quindi pochi kbit/s (CW ~15, a SR
+  basso ~10; tono ~24). Funziona con tutti i modi, anche nella risposta del Parrot e da 40 kS (prima: senza audio).
+  `FILE` = audio del file ES come prima (monoscopio o video personalizzato con il suo sonoro): le configurazioni
+  salvate passano a `FILE`, quelle nuove partono con `TONE`. Configurazione v7.
+- **Configurazione via USB con log in tempo reale:** la pagina web è un unico file (`docs/config/index.html`, incluso
+  nel firmware e pubblicato su GitHub Pages). Aperta da `192.168.4.1` usa HTTP come prima; aperta da GitHub Pages usa
+  Web Serial (Chrome/Edge) con il nuovo comando `API` (stesso JSON di `/api/...`, una riga `@API {json}`), mostra il
+  log e ha un campo per i comandi. Invia qualcosa solo quando dal log sa che la scheda è in configurazione (ogni
+  carattere ferma la TX). Caricamento dei monoscopi con `MEDIAW`.
+- **Ora dal browser e ciclo al minuto pieno:** la pagina (Wi-Fi e USB) imposta l'ora UTC da sola se manca o se
+  differisce di oltre 2 s, più il pulsante *Imposta l'ora*; seriale `TIME [ms]`, `API time`, HTTP `/api/time`. Con
+  l'ora valida ogni ciclo parte nei minuti UTC multipli della sua durata (mono + camera + pausa arrotondati al minuto,
+  almeno la TX + 20 s con il Parrot): l'ascolto del Parrot finisce in tempo per i due riavvii, la pausa senza Parrot
+  arriva al minuto. L'ora passa i riavvii nella RAM RTC con il contatore RTC solo per la durata del riavvio (errore
+  misurato < 50 ms); dopo gli altri reset (RST, apertura della porta USB, esptool, watchdog) l'ora non vale più (l'IDF
+  la riprendeva dal contatore a oscillatore RC: avanti di 2,4 min dopo 6 h di attesa) e la pagina la reimposta. Ora del QSO nel log e nella pagina, `hh:mmZ` nella riga di telemetria.
+- **Pagina web in ceco** (12 lingue): scelta automatica dalla lingua del browser.
+- **`SET wifi ON|OFF`:** access point all'accensione (predefinito ON, nel byte prima riservato: nessuna migrazione).
+  Spento: configurazione solo via USB e nessun riavvio prima della TX; BOOT in configurazione lo accende fino al
+  riavvio.
 - **Seeed XIAO ESP32S3 Plus (16 MB di flash) senza camera:** variante di compilazione `sdkconfig.defaults.xiao`
   (`CONFIG_PDX_BOARD_XIAO_S3`): console sulla USB nativa (USB-Serial-JTAG), LED giallo su GPIO21 con ritmi al posto
   dei colori, nessuna camera (voci nascoste nella pagina web, `SET cam` solo 0). Guida: `docs/INSTALL.md`.

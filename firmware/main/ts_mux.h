@@ -5,6 +5,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "audio_gen.h"
 
 #define PDX_ES_OFFSET 0x600000u          /* file PDXES001 nella partizione "symbols" */
 
@@ -33,6 +34,11 @@ typedef struct {
     bool active;
 } pdx_es_cursor_t;
 
+/* suono generato: più frame AAC in un PES (un PES per frame occuperebbe un pacchetto TS ogni 21 ms) */
+#define PDX_AGEN_FPP      6u             /* 128 ms */
+#define PDX_AGEN_FPP_LOW  24u            /* TS lento: 512 ms */
+#define PDX_AGEN_FPP_MAX  24u
+
 #define PDX_VQ_LEN 4                     /* fotogrammi in coda (modo camera) */
 
 typedef struct {
@@ -50,6 +56,10 @@ typedef struct {
     bool vqueue;                         /* video dalla coda (camera) invece che dal file ES */
     bool no_audio;                       /* TS senza audio (PMT con il solo video): SR sotto 100 kS */
     bool lowrate;                        /* TS sotto 150 kbit/s: PAT/PMT ogni 0,5 s e PCR ogni 100 ms */
+    const pdx_agen_t *agen;              /* suono generato (tono, CW) al posto dell'audio del file ES; NULL = dal file */
+    uint32_t afpp;                       /* frame AAC generati per PES (impostato da pdx_mux_init, lowrate compreso) */
+    uint32_t agen_k;                     /* prossimo frame generato */
+    uint8_t abuf[PDX_AGEN_FPP_MAX * 128u];   /* PES del suono generato */
     pdx_vq_entry_t vq[PDX_VQ_LEN];
     volatile uint32_t vq_r, vq_w;
     bool vq_sending;
@@ -65,7 +75,9 @@ typedef struct {
     uint32_t stats_null, stats_video, stats_audio;
 } pdx_mux_t;
 
-/* apre il file ES mappato (audio dal file, se non tolto con no_audio dopo l'apertura; video dal file oppure, con vqueue,
+/* frame per PES del suono generato a questo bitrate del TS */
+uint32_t pdx_mux_agen_fpp(double rate);
+/* apre il file ES mappato (audio dal file, se non tolto con no_audio o sostituito con agen dopo l'apertura; video dal file oppure, con vqueue,
  * dalla coda); NULL se riuscito */
 const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider,
                          bool vqueue);

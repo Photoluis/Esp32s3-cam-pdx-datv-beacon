@@ -51,6 +51,14 @@ test card 40 s, camera 0 s, pause 30 s, reply 40 s, wait 5 s:
    and the reply is on the air: about **32 s** after the start of your transmission at 333 kS, about **38 s** at
    500 kS (with *Wait before capture* = 5 s).
 
+**Cycle on the full minute (development version).** When the board knows the time (UTC), every cycle starts at a full
+minute, so the listening window is the same every time and can be announced. The web page sets the time by itself
+when it is opened (Wi-Fi or USB), or with **Set time from browser**; from the serial console `TIME <ms UTC>`. The cycle
+lasts mono + camera + pause rounded to whole minutes (at least the TX plus 20 s with the Parrot) and starts at the UTC
+minutes divisible by that length: with test card 20 s and pause 40 s the beacon transmits at hh:mm:00–00:20 and
+listens until about hh:mm:56, every minute. The diagram on the page shows the real pause. There is no backup battery:
+after a power cut the time is lost until the page is opened again, and the cycle runs as before (not aligned).
+
 ## 3. The LED
 
 | LED | Meaning |

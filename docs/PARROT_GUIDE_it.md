@@ -51,6 +51,14 @@ Esempio: monoscopio 40 s, camera 0 s, pausa 30 s, risposta 40 s, attesa 5 s:
    lampeggiante** e la risposta è in aria: circa **32 s** dopo l'inizio della tua TX a 333 kS, circa **38 s** a 500 kS
    (con *Attesa prima della cattura* = 5 s).
 
+**Ciclo al minuto pieno (versione di sviluppo).** Quando la scheda conosce l'ora (UTC) ogni ciclo parte a un minuto
+pieno: la finestra di ascolto è sempre la stessa e si può annunciare. La pagina web imposta l'ora da sola quando si
+apre (Wi-Fi o USB), oppure con **Imposta l'ora dal browser**; dalla console seriale `TIME <ms UTC>`. Il ciclo dura
+monoscopio + camera + pausa arrotondati ai minuti interi (almeno la TX più 20 s con il Parrot) e parte nei minuti UTC
+divisibili per quella durata: con monoscopio 20 s e pausa 40 s il beacon trasmette a hh:mm:00–00:20 e ascolta fino a
+circa hh:mm:56, ogni minuto. Lo schema nella pagina mostra la pausa reale. Non c'è batteria tampone: dopo uno
+spegnimento l'ora si perde finché non si riapre la pagina, e il ciclo va come prima (non allineato).
+
 ## 3. Il LED
 
 | LED | Significato |

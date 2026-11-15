@@ -81,7 +81,7 @@ static void make_pmt(pdx_mux_t *m, uint8_t *p)
     const uint8_t s[] = {0x02, 0xB0, m->no_audio ? 18 : 23, 0x00, 0x01, (uint8_t)(0xC1 | (m->pmt_ver & 31) << 1), 0x00, 0x00,
                          0xE0 | (PID_PCR >> 8), PID_PCR & 0xFF, 0xF0, 0x00,      /* PCR_PID, nessun descrittore */
                          m->vtype, 0xE0 | (m->vpid >> 8), m->vpid & 0xFF, 0xF0, 0x00,
-                         (uint8_t)m->es->atype, 0xE0 | (PID_A >> 8), PID_A & 0xFF, 0xF0, 0x00};
+                         m->agen ? 0x0F : (uint8_t)m->es->atype, 0xE0 | (PID_A >> 8), PID_A & 0xFF, 0xF0, 0x00};
     psi_packet(p, PID_PMT, &m->cc[1], s, m->no_audio ? sizeof(s) - 5u : sizeof(s));   /* senza audio: ultima voce tolta */
 }
 
@@ -206,6 +206,27 @@ static bool try_stream(pdx_mux_t *m, pdx_es_cursor_t *c, uint8_t kind, uint16_t 
     return true;
 }
 
+/* suono generato: afpp frame AAC (ADTS) in un PES, PTS sulla griglia dei frame dall'inizio del primo giro */
+static bool try_agen(pdx_mux_t *m, uint8_t *p)
+{
+    pdx_es_cursor_t *c = &m->a;
+    if (!c->active) {
+        const uint64_t pts = m->pts_base + (uint64_t)m->agen_k * (PDX_AGEN_FRAME * 90000u / PDX_AGEN_HZ);
+        if (pts > now_90k(m) + LEAD_90K) return false;
+        uint32_t n = 0, i = 0, len;
+        for (; i < m->afpp; i++) {
+            const uint8_t *f = pdx_agen_frame(m->agen, m->agen_k + i, &len);
+            if (n + len > sizeof(m->abuf)) break;
+            memcpy(m->abuf + n, f, len);
+            n += len;
+        }
+        m->agen_k += i;
+        start_pes_raw(m, c, pts, m->abuf, n, false);
+    }
+    pes_packet(m, c, PID_A, &m->cc[4], p);
+    return true;
+}
+
 /* video dalla coda: un fotogramma alla volta, inviato quando il suo PTS è entro LEAD_90K */
 static bool try_queue(pdx_mux_t *m, uint8_t *p)
 {
@@ -241,7 +262,7 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
     } else if (m->n >= m->next_pcr) {                     /* PCR ogni 40 ms (TS lento: 100 ms) */
         make_pcr(m, pkt);
         m->next_pcr = m->n + (uint64_t)((m->lowrate ? 0.1 : 0.04) * pkt_per_s);
-    } else if (!m->no_audio && try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt)) {
+    } else if (!m->no_audio && (m->agen ? try_agen(m, pkt) : try_stream(m, &m->a, 1, PID_A, &m->cc[4], pkt))) {
         m->stats_audio++;
     } else if (!m->vqueue && try_stream(m, &m->v, 0, m->vpid, &m->cc[3], pkt)) {
         m->stats_video++;
@@ -255,6 +276,8 @@ void pdx_mux_next(pdx_mux_t *m, uint8_t pkt[188])
     m->n++;
 }
 
+uint32_t pdx_mux_agen_fpp(double rate) { return rate < 150000.0 ? PDX_AGEN_FPP_LOW : PDX_AGEN_FPP; }
+
 const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, const char *service, const char *provider,
                          bool vqueue)
 {
@@ -267,6 +290,7 @@ const char *pdx_mux_init(pdx_mux_t *m, const uint8_t *es_file, double rate, cons
     m->vqueue = vqueue;
     /* sotto 150 kbit/s (SR sotto 100 kS) PAT/PMT ogni 100 ms e PCR ogni 40 ms prenderebbero quasi tutto il TS */
     m->lowrate = rate < 150000.0;
+    m->afpp = pdx_mux_agen_fpp(rate);
     m->vtype = vqueue ? 0x1B : (uint8_t)h->vtype;
     m->vpid = m->vtype == 0x24 ? PID_V : PID_V264;
     if (last.valid) {                                      /* prosegue dal segmento precedente, più la pausa reale */

@@ -112,11 +112,43 @@ Monoscopio e sfondi si scrivono come sopra (`--port /dev/ttyACM0`).
 
 1. Dopo **RST** la scheda accende l'access point di configurazione: rete **`NOCALL-BEACON`**, password
    **`beacon13cm`**.
-2. Aprite **http://192.168.4.1** (11 lingue).
+2. Aprite **http://192.168.4.1** (12 lingue).
 3. Impostate **il vostro nominativo** (QRZ), il **QTH locator** (es. `JN80PS`, dalla v1.1.0), frequenza, FEC, livello e ciclo,
    poi **Applica e salva**.
 4. Cambiate la password del Wi-Fi dal menu (il nome della rete diventa `<NOMINATIVO>-BEACON`).
 5. In alternativa dalla console seriale (115200 baud): `SET call IZ7PDX`, `SET loc JN80PS` (dalla v1.1.0), `SAVE`, `CONFIG`.
+
+### Configurazione via USB (versione di sviluppo)
+
+La stessa pagina del Wi-Fi funziona anche dal cavo USB, con il **log in tempo reale** della console seriale:
+**https://photoluis.github.io/Esp32s3-cam-pdx-datv-beacon/config/** (Chrome o Edge su computer, Web Serial).
+
+- Premete **Connetti** e scegliete la porta (CH340 sulla ESP32-S3-CAM, `USB JTAG/serial debug unit` sulla XIAO). La
+  scheda non si resetta. Se sulla XIAO il log mostra *The device has been lost* (succede dopo che un altro programma,
+  es. esptool o un terminale seriale, ha usato la porta), premete **RST** sulla scheda e riconnettete, senza altri
+  programmi sulla porta.
+- La pagina **ascolta soltanto** finché il log non mostra che la scheda è in configurazione: ogni carattere inviato
+  ferma la TX, come un tasto nel terminale. Se la scheda sta già trasmettendo, **Leggi configurazione** la ferma (la
+  scheda riparte in configurazione e la pagina carica i valori da sola).
+- Applica / salva, caricamento dei monoscopi (a 115200 baud un video di 3 MB richiede circa 5 minuti sulla CH340;
+  molto meno sulla XIAO), avvio del beacon, **Ferma TX** e un campo per i comandi seriali (`INFO`, `CONFIG`, ...).
+  **Scarica log** salva il log in un file di testo.
+- **Access point Wi-Fi all'accensione** (`SET wifi OFF`): con l'AP spento la scheda si configura solo via USB e la TX
+  non richiede più il riavvio per la radio. Il pulsante **BOOT** in configurazione accende l'AP fino al riavvio
+  successivo.
+
+**Suono** (`SET audio TONE|CW|FILE|OFF`): tono da 1 kHz, CW ID (il QRZ, e il locator se c'è posto, in Morse a
+750 Hz, circa 19 WPM, 1 s dopo l'inizio di ogni segmento e poi ogni 30 s), l'audio del file del monoscopio o del video
+personalizzato, oppure nessuno. Tono e CW sono generati dalla scheda e occupano pochi kbit/s: vanno anche a 40 kS.
+
+**Ora:** la pagina imposta l'orologio della scheda (UTC) da sola quando carica la configurazione, e con **Imposta
+l'ora dal browser** (seriale: `TIME <ms UTC>`, `TIME` la stampa). Con l'ora impostata il ciclo parte al minuto pieno
+(`docs/PARROT_GUIDE_it.md`) e la riga di telemetria mostra `hh:mmZ`. L'ora resta con i riavvii tra TX e ascolto, non
+con lo spegnimento né con un reset (RST, apertura della porta USB, scrittura del firmware): la pagina la reimposta
+appena caricata.
+
+Per gli script: `API status`, `API set <chiave=valore&...>`, `API time t=<ms>`, `API save`, `API defaults`,
+`API erase video|image` rispondono con una riga `@API {json}` (lo stesso JSON della pagina Wi-Fi).
 
 **Solo per radioamatori con licenza**, sulle frequenze e con le potenze consentite, sempre con un filtro passa-banda
 sull'uscita.
